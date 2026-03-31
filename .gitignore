@@ -23,6 +23,7 @@ yarn-error.log
 # Exported Assets & Specific Folders
 _export_images/
 docs/superpowers/
+md2img-renderer/
 *.zip
 *.tar.gz
 *.rar

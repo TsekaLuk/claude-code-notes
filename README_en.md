@@ -64,9 +64,7 @@ This project has completed the static deconstruction of v2.1.88, but with the ra
 
 ## 📝 TODO List
 
-- [ ] Follow up on architectural evolution updates for `v3.x` / `v2.2.x` versions.
 - [ ] Write a comprehensive guide on "Building Your Own Lightweight Agent Client Using the Architecture Summarized in This Document".
-- [ ] Provide English versions for all documents (assistance welcomed).
 
 ---
 
