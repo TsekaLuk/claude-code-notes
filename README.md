@@ -2,6 +2,8 @@
 
 # 🧑‍💻 Claude Code 源码深度剖析笔记
 
+[**🌐 English Version**](./README_en.md) | [**🇨🇳 中文版本**](./README.md)
+
 [![Version](https://img.shields.io/badge/Claude_Code-v2.1.88-blue.svg?style=flat-square)](https://www.anthropic.com/claude-code)
 [![Documentation](https://img.shields.io/badge/Docs-50_Articles-success.svg?style=flat-square)](#-目录大纲)
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC_BY--NC_4.0-lightgrey.svg?style=flat-square)](https://creativecommons.org/licenses/by-nc/4.0/)
@@ -54,8 +56,7 @@
 
 1. **🌟 提交 Issue / 勘误**：遇到表述不清、代码更新或文档排版错误？请随时开 Issue！
 2. **🔄 版本更新跟踪**：如果您抓取到了更新版本的 source map 差异，欢迎提 PR 来补充新特性的分析（例如新版 MCP 协议支持）。
-3. **🌐 国际化翻译 (i18n)**：欢迎将精彩的中文文档翻译为 English 帮助全球开发者！
-4. **🎨 提供更好的 Demo 图**：在对应的章节提交具体的代码片段验证样例或运行截图。
+3. **🎨 提供更好的 Demo 图**：在对应的章节提交具体的代码片段验证样例或运行截图。
 
 *提交 PR 前请确保保持原有的 `“叙述 + QA + Mermaid”` 三段式排版规范。*
 
