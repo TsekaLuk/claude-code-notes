@@ -46,37 +46,19 @@ Claude Code 的插件系统分为两个层次：
 
 ### 2.2 模块依赖关系图
 
-```
-CLI 启动
-    │
-    ▼
-initBuiltinPlugins()          ← src/plugins/bundled/index.ts
-    │  （目前为空，脚手架）
-    │
-    ▼
-BUILTIN_PLUGINS: Map           ← src/plugins/builtinPlugins.ts
-    │
-    ├─► getBuiltinPlugins()
-    │       │
-    │       ├── 读取 getSettings_DEPRECATED()  ← 用户偏好
-    │       ├── 检查 isAvailable()              ← 可用性过滤
-    │       └── 返回 { enabled[], disabled[] }
-    │
-    └─► getBuiltinPluginSkillCommands()
-            │
-            ├── skillDefinitionToCommand()     ← 将技能转为命令
-            └── 注入 Command[]  ──────────────► commands.ts / Skill 工具
-```
+```mermaid
+graph TD
+    A[CLI 启动] --> B[initBuiltinPlugins\nsrc/plugins/bundled/index.ts\n目前为空，脚手架]
+    B --> C[BUILTIN_PLUGINS: Map\nsrc/plugins/builtinPlugins.ts]
+    C --> D[getBuiltinPlugins\n读取 getSettings_DEPRECATED 用户偏好\n检查 isAvailable 可用性过滤\n返回 enabled / disabled]
+    C --> E[getBuiltinPluginSkillCommands\nskillDefinitionToCommand 技能转命令\n注入 Command[] → commands.ts / Skill 工具]
 
-```
-types/plugin.ts
-    ├── BuiltinPluginDefinition
-    ├── LoadedPlugin
-    ├── PluginError（17 种）
-    └── PluginLoadResult
-            ├── enabled: LoadedPlugin[]
-            ├── disabled: LoadedPlugin[]
-            └── errors: PluginError[]
+    subgraph types/plugin.ts
+        F[BuiltinPluginDefinition]
+        G[LoadedPlugin]
+        H[PluginError 17 种]
+        I[PluginLoadResult\nenabled: LoadedPlugin\ndisabled: LoadedPlugin\nerrors: PluginError]
+    end
 ```
 
 ### 2.3 关键数据流

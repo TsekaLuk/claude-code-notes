@@ -29,42 +29,41 @@ Git 类命令是 Claude Code 中使用频率最高的一类命令，将繁琐的
 
 ### 2.2 模块依赖关系图
 
-```
-commit.ts (PromptCommand)
-├── utils/attribution.js         # 生成 "Co-Authored-By" 等归因文本
-├── utils/promptShellExecution.js # 执行 !\`cmd\` 语法，内联 Shell 输出
-├── utils/undercover.js          # ANT 内部用：隐藏真实身份的特殊指令
-└── ALLOWED_TOOLS                # 工具白名单: git add/status/commit
+```mermaid
+graph TD
+    COMMIT[commit.ts\nPromptCommand]
+    CPP[commit-push-pr.ts\nPromptCommand]
+    BRANCH[branch/\nLocalJSXCommand]
+    DIFF[diff/\nLocalJSXCommand]
 
-commit-push-pr.ts (PromptCommand)
-├── utils/attribution.js         # commit 归因 + PR 归因
-├── utils/git.js → getDefaultBranch()  # 异步获取 git default branch
-├── utils/promptShellExecution.js
-└── ALLOWED_TOOLS                # 包含 gh CLI 命令
+    COMMIT --> ATTR[utils/attribution.js\n生成 Co-Authored-By 归因]
+    COMMIT --> PSE[utils/promptShellExecution.js\n执行 !cmd 内联 Shell 输出]
+    COMMIT --> UC[utils/undercover.js\nANT 内部隐身指令]
+    COMMIT --> AT1[ALLOWED_TOOLS\ngit add/status/commit]
 
-branch/ (LocalJSXCommand)
-├── branch.ts → createFork()    # 核心：复制 transcript 创建分支
-├── utils/sessionStorage.js     # getTranscriptPath/getProjectDir
-└── services/analytics          # logEvent 追踪 branch 行为
+    CPP --> ATTR
+    CPP --> GIT[utils/git.js\ngetDefaultBranch]
+    CPP --> PSE
+    CPP --> AT2[ALLOWED_TOOLS\n含 gh CLI 命令]
 
-diff/ (LocalJSXCommand)
-└── components/diff/DiffDialog.js  # Ink UI 差异对话框组件
+    BRANCH --> BT[branch.ts → createFork\n复制 transcript 创建分支]
+    BRANCH --> SS[utils/sessionStorage.js\ngetTranscriptPath/getProjectDir]
+    BRANCH --> ANA[services/analytics\nlogEvent 追踪 branch 行为]
+
+    DIFF --> DD[components/diff/DiffDialog.js\nInk UI 差异对话框组件]
 ```
 
 ### 2.3 关键数据流
 
-```
-用户执行 /commit
-    ↓
-commit.getPromptForCommand(args, context)
-    ↓
-getPromptContent()                     → 构建 Markdown 格式提示词模板
-    ↓
-executeShellCommandsInPrompt(content)  → 展开 !\`git status\`、!\`git diff HEAD\` 等
-    ↓
-返回 [{ type: 'text', text: finalContent }]
-    ↓
-REPL 将提示词注入对话 → 模型生成 git commit 命令 → Bash 工具执行
+```mermaid
+flowchart TD
+    A[用户执行 /commit] --> B[commit.getPromptForCommand\nargs / context]
+    B --> C[getPromptContent\n构建 Markdown 格式提示词模板]
+    C --> D[executeShellCommandsInPrompt\n展开 !git status / !git diff HEAD 等]
+    D --> E[返回 type:text finalContent]
+    E --> F[REPL 将提示词注入对话]
+    F --> G[模型生成 git commit 命令]
+    G --> H[Bash 工具执行]
 ```
 
 ## 三、核心实现走读

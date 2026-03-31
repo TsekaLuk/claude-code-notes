@@ -31,53 +31,33 @@
 
 ### 2.2 模块依赖关系图
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                     PromptInput.tsx                       │
-│  （输入框右侧渲染 CompanionSprite，预留 columns 空间）    │
-└──────────────────────────┬───────────────────────────────┘
-                           │
-              ┌────────────▼────────────┐
-              │   CompanionSprite.tsx    │
-              │   帧动画 / 气泡 / 爱心   │
-              └──────┬──────────────────┘
-          ┌──────────┼──────────────────┐
-          │          │                  │
-  ┌───────▼────┐ ┌───▼──────┐ ┌────────▼──────┐
-  │sprites.ts  │ │companion │ │useBuddyNoti-  │
-  │（ASCII精灵）│ │.ts       │ │fication.tsx   │
-  └───────┬────┘ │（骨骼生成）│ │（彩虹预告）    │
-          │      └─────┬────┘ └───────────────┘
-          │            │
-   ┌──────▼────────────▼───────┐
-   │         types.ts           │
-   │  Companion / SPECIES / RARITIES│
-   └───────────────────────────┘
+```mermaid
+graph TD
+    pi[PromptInput.tsx<br>输入框右侧渲染 CompanionSprite，预留 columns 空间] --> cs
+    
+    subgraph render[组件]
+        cs[CompanionSprite.tsx<br>帧动画 / 气泡 / 爱心]
+    end
+    
+    cs --> spr[sprites.ts<br>ASCII精灵]
+    cs --> comp[companion.ts<br>骨骼生成]
+    cs --> notif[useBuddyNotification.tsx<br>彩虹预告]
+    
+    spr --> types[types.ts<br>Companion / SPECIES / RARITIES]
+    comp --> types
 ```
 
 ### 2.3 关键数据流
 
-```
-用户首次运行 /buddy hatch
-    │
-    ▼
-roll(userId) → mulberry32(hash(userId + SALT))
-    │ → 确定性 Companion Bones（物种/眼睛/帽子/稀有度/属性）
-    ▼
-Claude API 生成 CompanionSoul（name + personality）
-    │
-    ▼
-saveGlobalConfig({ companion: { name, personality, hatchedAt } })
-    │
-    ▼ 后续每次启动
-getCompanion() → roll(userId).bones + stored.soul
-    │
-    ▼
-CompanionSprite 渲染（每 500ms 切换 IDLE_SEQUENCE 帧）
-    │
-    ▼
-用户输入 "/buddy" → 触发 AI 生成对话气泡文字
-    │ SpeechBubble 组件显示 ~10s 后渐隐消失
+```mermaid
+flowchart TD
+    first[用户首次运行 /buddy hatch] --> roll[roll userId → mulberry32 hash]
+    roll -- "确定性 Companion Bones<br>物种/眼睛/帽子/稀有度/属性" --> api[Claude API 生成 CompanionSoul<br>name + personality]
+    api --> save[saveGlobalConfig<br>companion: name, personality, hatchedAt]
+    save -- 后续每次启动 --> get[getCompanion → roll userId .bones + stored.soul]
+    get --> render[CompanionSprite 渲染<br>每 500ms 切换 IDLE_SEQUENCE 帧]
+    render --> input[用户输入 /buddy → 触发 AI 生成对话气泡文字]
+    input --> bubble[SpeechBubble 组件显示 ~10s 后渐隐消失]
 ```
 
 ---

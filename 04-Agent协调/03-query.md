@@ -36,70 +36,39 @@
 
 ### 2.2 模块依赖关系图
 
-```
-QueryEngine.submitMessage()
-        │ 调用
-        ▼
-  query(params)  ── yield* ──►  queryLoop(params)
-                                     │
-              ┌──────────────────────┼──────────────────────┐
-              │                      │                      │
-              ▼                      ▼                      ▼
-  deps.microcompact()       deps.autocompact()      deps.callModel()
-  (消息压缩)                 (自动紧缩)               (API 流式调用)
-              │                      │                      │
-              │                snipModule                   │
-              │                contextCollapse              │
-              │                                            ▼
-              │                              StreamingToolExecutor
-              │                                  (并行工具执行)
-              ▼                                      │
-      messagesForQuery                          toolResults[]
-         (本轮消息)                                   │
-                                                     ▼
-                                            runTools() / 工具执行
-                                                     │
-                                              continue (下一轮)
+```mermaid
+graph TD
+    A[QueryEngine.submitMessage] -- 调用 --> B[query params]
+    B -- yield* --> C[queryLoop params]
+    C --> D[deps.microcompact\n消息压缩]
+    C --> E[deps.autocompact\n自动紧缩\nsnipModule\ncontextCollapse]
+    C --> F[deps.callModel\nAPI 流式调用]
+    F --> G[StreamingToolExecutor\n并行工具执行]
+    D --> H[messagesForQuery\n本轮消息]
+    G --> I[toolResults]
+    I --> J[runTools / 工具执行]
+    J --> K[continue 下一轮]
 ```
 
 **关键依赖注入**：`deps` 对象（来自 `productionDeps()` 或测试注入）封装了 `callModel`、`autocompact`、`microcompact`、`uuid` 等外部依赖，使 `queryLoop` 的核心逻辑可在测试中替换任何依赖。
 
 ### 2.3 关键数据流
 
-```
-[进入循环]
-      │
-      ▼  (每轮迭代)
-① applyToolResultBudget(messagesForQuery) — 限制工具结果总大小
-      │
-      ▼
-② snipCompactIfNeeded(messagesForQuery)   — HISTORY_SNIP 特性：片段压缩
-      │
-      ▼
-③ microcompact(messagesForQuery)          — 微压缩（单工具结果压缩）
-      │
-      ▼
-④ contextCollapse.applyCollapsesIfNeeded()— 上下文折叠
-      │
-      ▼
-⑤ autocompact(messagesForQuery)           — 自动完整压缩（阈值触发）
-      │
-      ▼
-⑥ calculateTokenWarningState()            — 检查是否达到阻塞限制
-      │ (未达限制)
-      ▼
-⑦ for await...of deps.callModel(...)     — 发起流式 API 请求
-      │ 每个流式消息
-      ├── yield message                   — 透传给上游
-      ├── 记录 tool_use 块               — 累积到 toolUseBlocks[]
-      └── StreamingToolExecutor.addTool() — 并行工具执行（可选）
-      │ 流结束
-      ▼
-⑧ needsFollowUp?
-      ├── 是 → 执行工具 → 收集 toolResults → state = {messages: [..., results]} → continue
-      └── 否 → 检查异常状态（prompt_too_long, max_output_tokens）
-                   ├── 可恢复 → 压缩/escalate → continue
-                   └── 不可恢复 → return Terminal
+```mermaid
+flowchart TD
+    A[进入循环] --> B[①applyToolResultBudget\n限制工具结果总大小]
+    B --> C[②snipCompactIfNeeded\nHISTORY_SNIP 片段压缩]
+    C --> D[③microcompact\n微压缩，单工具结果压缩]
+    D --> E[④contextCollapse.applyCollapsesIfNeeded\n上下文折叠]
+    E --> F[⑤autocompact\n自动完整压缩，阈值触发]
+    F --> G[⑥calculateTokenWarningState\n检查是否达到阻塞限制]
+    G --> H[⑦for await of deps.callModel\n发起流式 API 请求]
+    H --> I[yield message 透传给上游\n记录 tool_use 块\nStreamingToolExecutor.addTool]
+    I --> J{⑧needsFollowUp?}
+    J -- 是 --> K[执行工具 → 收集 toolResults\nstate = messages + results → continue]
+    J -- 否 --> L{异常状态?}
+    L -- 可恢复 --> M[压缩/escalate → continue]
+    L -- 不可恢复 --> N[return Terminal]
 ```
 
 ---

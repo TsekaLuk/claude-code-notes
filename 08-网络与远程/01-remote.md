@@ -30,66 +30,53 @@
 
 ### 2.2 模块依赖关系图
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│                       src/remote/                              │
-│                                                                │
-│  ┌──────────────────────────┐                                  │
-│  │  RemoteSessionManager    │ ◄── 业务层调用入口               │
-│  │  (会话生命周期管理)        │                                  │
-│  └──────────┬───────────────┘                                  │
-│             │ 创建/驱动                                         │
-│  ┌──────────▼───────────────┐   ┌──────────────────────────┐  │
-│  │  SessionsWebSocket        │   │   sdkMessageAdapter      │  │
-│  │  (WS 连接 + 重连状态机)   │   │   (SDKMessage → Message) │  │
-│  └──────────────────────────┘   └──────────────────────────┘  │
-│                                                                │
-│  ┌──────────────────────────┐                                  │
-│  │  remotePermissionBridge  │ (合成权限请求消息)               │
-│  └──────────────────────────┘                                  │
-└──────────────────────┬─────────────────────────────────────────┘
-                       │
-         ┌─────────────┼──────────────────┐
-         ▼             ▼                  ▼
-  utils/teleport   entrypoints/sdk   utils/proxy
-  /api.js          /controlTypes     /mtls
-  (HTTP POST 发送)  (控制消息类型)   (mTLS/代理配置)
+```mermaid
+graph TD
+    A[业务层调用入口] --> B[RemoteSessionManager\n会话生命周期管理]
+    B -- 创建/驱动 --> C[SessionsWebSocket\nWS 连接 + 重连状态机]
+    B --> D[sdkMessageAdapter\nSDKMessage → Message]
+    B --> E[remotePermissionBridge\n合成权限请求消息]
+    B --> F[utils/teleport/api.js\nHTTP POST 发送]
+    B --> G[entrypoints/sdk/controlTypes\n控制消息类型]
+    B --> H[utils/proxy/mtls\nmTLS/代理配置]
 ```
 
 ### 2.3 关键数据流
 
 **接收消息流：**
-```
-CCR 后端
-  → WebSocket frame (JSON)
-  → SessionsWebSocket.handleMessage()
-  → RemoteSessionManager.handleMessage()
-  → 分支路由：
-      control_request  → handleControlRequest() → callbacks.onPermissionRequest
-      control_cancel   → pendingPermissionRequests.delete() → callbacks.onPermissionCancelled
-      SDKMessage       → callbacks.onMessage
-  → sdkMessageAdapter.convertSDKMessage()
-  → REPL 渲染层
+```mermaid
+flowchart TD
+    A[CCR 后端] --> B[WebSocket frame JSON]
+    B --> C[SessionsWebSocket.handleMessage]
+    C --> D[RemoteSessionManager.handleMessage]
+    D --> E{分支路由}
+    E -->|control_request| F[handleControlRequest\n→ callbacks.onPermissionRequest]
+    E -->|control_cancel| G[pendingPermissionRequests.delete\n→ callbacks.onPermissionCancelled]
+    E -->|SDKMessage| H[callbacks.onMessage\n→ sdkMessageAdapter.convertSDKMessage]
+    F --> I[REPL 渲染层]
+    G --> I
+    H --> I
 ```
 
 **发送消息流：**
-```
-用户输入
-  → RemoteSessionManager.sendMessage()
-  → utils/teleport/api.sendEventToRemoteSession()  (HTTP POST)
-  → CCR 后端
+```mermaid
+flowchart TD
+    A[用户输入] --> B[RemoteSessionManager.sendMessage]
+    B --> C[utils/teleport/api.sendEventToRemoteSession\nHTTP POST]
+    C --> D[CCR 后端]
 ```
 
 **权限审批流：**
-```
-CCR 容器执行工具前
-  → control_request { subtype: 'can_use_tool' }
-  → remotePermissionBridge.createSyntheticAssistantMessage()
-  → 本地权限 UI 展示（ToolUseConfirm）
-  → 用户确认/拒绝
-  → RemoteSessionManager.respondToPermissionRequest()
-  → SessionsWebSocket.sendControlResponse()
-  → CCR 容器继续/取消工具调用
+```mermaid
+flowchart TD
+    A[CCR 容器执行工具前] --> B[control_request\nsubtype: can_use_tool]
+    B --> C[remotePermissionBridge\n.createSyntheticAssistantMessage]
+    C --> D[本地权限 UI 展示\nToolUseConfirm]
+    D --> E{用户确认/拒绝}
+    E -->|确认| F[RemoteSessionManager\n.respondToPermissionRequest]
+    E -->|拒绝| F
+    F --> G[SessionsWebSocket\n.sendControlResponse]
+    G --> H[CCR 容器继续/取消工具调用]
 ```
 
 ---

@@ -40,81 +40,44 @@
 
 ### 2.2 模块依赖关系图
 
-```
-AppState.tasks (字典)
-       │ 读/写
-       ▼
-┌──────────────────────────────────────────────────────┐
-│                    tasks/ 模块                        │
-│                                                      │
-│  types.ts ── TaskState 联合类型 ──────────────────── │
-│     │           │                                    │
-│     │    LocalAgentTaskState  RemoteAgentTaskState   │
-│     │    LocalShellTaskState  InProcessTeammateState │
-│     │    LocalWorkflowState   MonitorMcpState        │
-│     │    DreamTaskState                              │
-│     │                                               │
-│  stopTask.ts ◄────── TaskStopTool (LLM 调用)         │
-│               ◄────── SDK stop_task 控制请求          │
-│                                                      │
-│  pillLabel.ts ──── 渲染 UI 标签文本                   │
-└──────────────────────────────────────────────────────┘
-       │ 调用 kill()
-       ▼
-各任务实现（LocalAgentTask, LocalShellTask...）
-通过 AbortController 终止底层进程/Agent
+```mermaid
+graph TD
+    A[AppState.tasks 字典] --> B[tasks/ 模块]
+    B --> C[types.ts\nTaskState 联合类型]
+    C --> C1[LocalAgentTaskState]
+    C --> C2[RemoteAgentTaskState]
+    C --> C3[LocalShellTaskState]
+    C --> C4[InProcessTeammateState]
+    C --> C5[LocalWorkflowState]
+    C --> C6[MonitorMcpState]
+    C --> C7[DreamTaskState]
+    D[TaskStopTool LLM 调用] --> E[stopTask.ts]
+    F[SDK stop_task 控制请求] --> E
+    B --> G[pillLabel.ts\n渲染 UI 标签文本]
+    E -- 调用 kill --> H[各任务实现\nLocalAgentTask / LocalShellTask...\n通过 AbortController 终止底层进程/Agent]
 ```
 
-```
-LocalAgentTask 内部关键调用链：
-
-AgentTool 调用
-  │
-  ▼
-registerTask() → 写入 AppState.tasks[taskId]
-  │
-  ▼
-query() 流式循环（工作者执行）
-  │ 每轮结束
-  ▼
-updateProgressFromMessage() → 更新 progress 字段
-  │ 完成/失败
-  ▼
-enqueueAgentNotification() → <task-notification> XML 入队
-  │
-  ▼
-协调器 Claude 收到通知
+```mermaid
+flowchart TD
+    A[AgentTool 调用] --> B[registerTask\n写入 AppState.tasks taskId]
+    B --> C[query 流式循环\n工作者执行]
+    C --> D[updateProgressFromMessage\n更新 progress 字段\n每轮结束]
+    D --> E[enqueueAgentNotification\ntask-notification XML 入队\n完成/失败]
+    E --> F[协调器 Claude 收到通知]
 ```
 
 ### 2.3 关键数据流
 
 **任务创建到通知的完整数据流：**
 
-```
-1. 协调器调用 AgentTool({ prompt, subagent_type: 'worker' })
-         │
-         ▼
-2. LocalAgentTask 初始化状态
-   { taskId, status: 'running', isBackgrounded: false, pendingMessages: [] }
-         │
-         ▼
-3. query() 异步生成器启动，工作者开始执行
-         │ 工作者每调用一个工具
-         ▼
-4. updateProgressFromMessage() 更新 progress
-   { toolUseCount++, latestInputTokens, cumulativeOutputTokens }
-         │ 工作者完成
-         ▼
-5. enqueueAgentNotification() 构建 XML 通知：
-   <task-notification>
-     <task-id>agent-xyz</task-id>
-     <status>completed</status>
-     <result>...</result>
-     <usage>...</usage>
-   </task-notification>
-         │
-         ▼
-6. 通知入队 → 作为用户角色消息推送给协调器
+```mermaid
+flowchart TD
+    S1[1. 协调器调用 AgentTool\nprompt, subagent_type: worker] --> S2
+    S2[2. LocalAgentTask 初始化状态\ntaskId / status: running\nisBackgrounded: false\npendingMessages: 空] --> S3
+    S3[3. query 异步生成器启动\n工作者开始执行] --> S4
+    S4[4. updateProgressFromMessage 更新 progress\ntoolUseCount++ / latestInputTokens\ncumulativeOutputTokens\n工作者每调用一个工具] --> S5
+    S5[5. enqueueAgentNotification 构建 XML 通知\ntask-notification / task-id / status\nresult / usage\n工作者完成] --> S6
+    S6[6. 通知入队\n→ 作为用户角色消息推送给协调器]
 ```
 
 ---
@@ -125,19 +88,17 @@ enqueueAgentNotification() → <task-notification> XML 入队
 
 **任务生命周期状态机**
 
-```
-          ┌─────────┐
-          │ pending │  (可选初始状态)
-          └────┬────┘
-               │ 开始执行
-               ▼
-          ┌─────────┐
-          │ running │◄─── SendMessage 继续
-          └────┬────┘
-         ┌─────┼──────┐
-         │     │      │
-         ▼     ▼      ▼
-    completed failed killed
+```mermaid
+stateDiagram-v2
+    [*] --> pending : 可选初始状态
+    pending --> running : 开始执行
+    running --> running : SendMessage 继续
+    running --> completed : query 正常返回
+    running --> failed : 抛出未处理异常
+    running --> killed : stopTask / killAsyncAgent
+    completed --> [*]
+    failed --> [*]
+    killed --> [*]
 ```
 
 状态转换规则：

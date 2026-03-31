@@ -31,65 +31,53 @@
 
 ### 2.2 模块依赖关系图
 
-```
-claude.ai Web Frontend
-      │
-      │  WebSocket / SSE
-      ▼
-CCR 云端平台 (api.anthropic.com)
-      │ 环境注册 / 工作轮询
-      │ POST /environments/{id}/work/{id}/heartbeat
-      │
-      ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     src/bridge/                              │
-│                                                              │
-│  bridgeMain.ts                                               │
-│   runBridgeLoop()                                            │
-│    ├── registerBridgeEnvironment()  (注册本机为 CCR 环境)    │
-│    ├── pollForWork()                (轮询工作任务)            │
-│    ├── spawner.spawn()              (派生子进程)              │
-│    └── heartbeatWork()             (维持任务租约)             │
-│                                                              │
-│  bridgeMessaging.ts                                          │
-│    handleIngressMessage()  ─────────► replBridgeTransport    │
-│    handleServerControlRequest()      (v1 WS / v2 SSE)        │
-│    BoundedUUIDSet (echo 去重)                                 │
-│                                                              │
-│  sessionRunner.ts (派生子进程)                                │
-│  jwtUtils.ts      (JWT 刷新调度)                             │
-│  trustedDevice.ts (设备信任令牌)                             │
-└─────────────────────────────────────────────────────────────┘
-      │
-      │ 子进程 stdin/stdout
-      ▼
-Claude Code 子进程 (--sdk-url / --input-format stream-json)
+```mermaid
+graph TD
+    WEB[claude.ai Web Frontend]
+    CCR[CCR 云端平台\napi.anthropic.com\n环境注册 / 工作轮询 / heartbeat]
+
+    subgraph bridge["src/bridge/"]
+        MAIN[bridgeMain.ts\nrunBridgeLoop\nregisterBridgeEnvironment\npollForWork / spawner.spawn\nheartbeatWork]
+        MSG[bridgeMessaging.ts\nhandleIngressMessage\nhandleServerControlRequest\nBoundedUUIDSet echo去重]
+        TRANS[replBridgeTransport\nv1 WS / v2 SSE]
+        SESSION[sessionRunner.ts\n派生子进程]
+        JWT[jwtUtils.ts\nJWT 刷新调度]
+        DEVICE[trustedDevice.ts\n设备信任令牌]
+    end
+
+    CHILD[Claude Code 子进程\n--sdk-url / --input-format stream-json]
+
+    WEB -->|WebSocket/SSE| CCR
+    CCR --> MAIN
+    MSG --> TRANS
+    bridge --> CHILD
 ```
 
 ### 2.3 关键数据流
 
 **工作分配与执行：**
-```
-CCR 平台
-  → pollForWork() 返回 WorkResponse { id, data, secret }
-  → decodeWorkSecret() 解码 base64url WorkSecret
-  → 获取 api_base_url、session_ingress_token、mcp_config 等
-  → spawner.spawn({ sessionId, sdkUrl, accessToken })
-  → 子进程建立 WebSocket 连接到 session-ingress
-  → 双向消息流通过 ReplBridgeTransport 传递
+```mermaid
+flowchart TD
+    A[CCR 平台] --> B[pollForWork\n返回 WorkResponse id/data/secret]
+    B --> C[decodeWorkSecret\n解码 base64url WorkSecret]
+    C --> D[获取 api_base_url\nsession_ingress_token / mcp_config]
+    D --> E[spawner.spawn\nsessionId / sdkUrl / accessToken]
+    E --> F[子进程建立 WebSocket\n连接到 session-ingress]
+    F --> G[双向消息流\n通过 ReplBridgeTransport 传递]
 ```
 
 **入站消息路由：**
-```
-服务端 WebSocket 帧 (JSON)
-  → handleIngressMessage(data, recentPostedUUIDs, recentInboundUUIDs, ...)
-  → isSDKControlResponse?  → onPermissionResponse()
-  → isSDKControlRequest?   → onControlRequest() → handleServerControlRequest()
-  → isSDKMessage?
-      UUID 在 recentPostedUUIDs? → 忽略（自己发的 echo）
-      UUID 在 recentInboundUUIDs? → 忽略（重复投递）
-      type === 'user' → recentInboundUUIDs.add(uuid) → onInboundMessage()
-      其他 → logForDebugging 忽略
+```mermaid
+flowchart TD
+    A[服务端 WebSocket 帧 JSON] --> B[handleIngressMessage\nrecentPostedUUIDs / recentInboundUUIDs]
+    B --> C{消息类型判断}
+    C -->|isSDKControlResponse| D[onPermissionResponse]
+    C -->|isSDKControlRequest| E[onControlRequest\n→ handleServerControlRequest]
+    C -->|isSDKMessage| F{UUID 去重检查}
+    F -->|UUID 在 recentPostedUUIDs| G[忽略 自己发的 echo]
+    F -->|UUID 在 recentInboundUUIDs| H[忽略 重复投递]
+    F -->|type === user| I[recentInboundUUIDs.add\n→ onInboundMessage]
+    F -->|其他| J[logForDebugging 忽略]
 ```
 
 ---

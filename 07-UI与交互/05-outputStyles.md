@@ -31,55 +31,33 @@ Claude Code 的"输出样式系统"（Output Styles）是一套通过**系统提
 
 ### 2.2 模块依赖关系图
 
-```
-┌─────────────────────────────────────────────────────┐
-│              系统提示构建（buildEffectiveSystemPrompt）│
-│              src/utils/systemPrompt.ts               │
-└──────────────────────┬──────────────────────────────┘
-                       │
-              ┌────────▼────────┐
-              │ getOutputStyle  │
-              │    Config()     │
-              └────────┬────────┘
-          ┌────────────┼────────────────────┐
-          │            │                    │
-  ┌───────▼──────┐ ┌───▼────────────┐ ┌────▼──────────────┐
-  │OUTPUT_STYLE  │ │getOutputStyle  │ │loadPluginOutput   │
-  │_CONFIG       │ │DirStyles()     │ │Styles()           │
-  │（内置样式）   │ │（文件系统加载） │ │（插件样式）        │
-  └──────────────┘ └───┬────────────┘ └───────────────────┘
-                       │
-          ┌────────────┼──────────────┐
-          │                           │
-  ┌───────▼──────────────┐  ┌─────────▼─────────────────┐
-  │ 用户样式              │  │ 项目样式                   │
-  │ ~/.claude/output-    │  │ ./.claude/output-styles/   │
-  │ styles/*.md          │  │ *.md                       │
-  └──────────────────────┘  └───────────────────────────┘
+```mermaid
+graph TD
+    SP[系统提示构建\nbuildEffectiveSystemPrompt\nsrc/utils/systemPrompt.ts]
+    OSC[getOutputStyleConfig]
+    BUILTIN[OUTPUT_STYLE_CONFIG\n内置样式]
+    FS[getOutputStyleDirStyles\n文件系统加载]
+    PLUGIN[loadPluginOutputStyles\n插件样式]
+    USER[用户样式\n~/.claude/output-styles/*.md]
+    PROJ[项目样式\n./.claude/output-styles/*.md]
+
+    SP --> OSC
+    OSC --> BUILTIN
+    OSC --> FS
+    OSC --> PLUGIN
+    FS --> USER
+    FS --> PROJ
 ```
 
 ### 2.3 关键数据流
 
-```
-用户设置 /output-style Explanatory
-         │
-         ▼
-settings.outputStyle = 'Explanatory'
-         │
-         ▼
-getOutputStyleConfig() → OUTPUT_STYLE_CONFIG['Explanatory']
-         │ .prompt = "You are an interactive CLI tool..."
-         │ .keepCodingInstructions = true
-         ▼
-buildEffectiveSystemPrompt()
-  └── 将 style.prompt 注入系统提示
-  └── keepCodingInstructions=true 时保留代码指令部分
-         │
-         ▼
-Claude API 请求（system: "...Explanatory Style Active\n## Insights...")
-         │
-         ▼
-Claude 输出每段代码前后插入 "★ Insight" 教育框
+```mermaid
+flowchart TD
+    A[用户设置 /output-style Explanatory] --> B[settings.outputStyle = Explanatory]
+    B --> C[getOutputStyleConfig\n→ OUTPUT_STYLE_CONFIG Explanatory\n.prompt / .keepCodingInstructions = true]
+    C --> D[buildEffectiveSystemPrompt\n将 style.prompt 注入系统提示\nkeepCodingInstructions=true 时保留代码指令]
+    D --> E[Claude API 请求\nsystem: ...Explanatory Style Active...]
+    E --> F[Claude 输出每段代码前后\n插入 ★ Insight 教育框]
 ```
 
 ---

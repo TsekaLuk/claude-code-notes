@@ -57,75 +57,45 @@
 
 ### 2.2 模块依赖关系图
 
-```
-CLI 启动
-    │
-    ▼
-initBundledSkills()                    ← bundled/index.ts
-    │
-    ├── registerUpdateConfigSkill()
-    ├── registerKeybindingsSkill()
-    ├── registerVerifySkill()
-    ├── registerBatchSkill()
-    ├── registerSkillifySkill()         ← 仅 USER_TYPE=ant
-    ├── registerRememberSkill()
-    ├── registerSimplifySkill()
-    ├── registerStuckSkill()
-    └── feature flag 控制的技能（dream/hunter/loop/...）
-            │
-            ▼
-    registerBundledSkill(def)          ← bundledSkills.ts
-            │
-            ├── files 处理（惰性提取）
-            └── bundledSkills[] ──────► getBundledSkills() → Command[]
+```mermaid
+graph TD
+    A[CLI 启动] --> B[initBundledSkills\nbundled/index.ts]
+    B --> B1[registerUpdateConfigSkill]
+    B --> B2[registerKeybindingsSkill]
+    B --> B3[registerVerifySkill]
+    B --> B4[registerBatchSkill]
+    B --> B5[registerSkillifySkill\n仅 USER_TYPE=ant]
+    B --> B6[registerRememberSkill\nregisterSimplifySkill\nregisterStuckSkill]
+    B --> B7[feature flag 控制技能\ndream/hunter/loop/...]
+    B1 & B2 & B3 & B4 & B5 & B6 & B7 --> C[registerBundledSkill def\nbundledSkills.ts\nfiles 处理 惰性提取]
+    C --> D[bundledSkills\n→ getBundledSkills → Command]
 
-用户技能（文件系统）                   ← loadSkillsDir.ts
-    .claude/skills/*.md
-    ~/.claude/skills/*.md
-    插件 skills 目录
-            │
-            ▼
-    parseSkillFrontmatterFields()
-    createSkillCommand()
-            │
-            └──────────────────────── → Command { source: 'skills' | 'plugin' }
+    E[用户技能 文件系统\n.claude/skills/*.md\n~/.claude/skills/*.md\n插件 skills 目录\nloadSkillsDir.ts] --> F[parseSkillFrontmatterFields\ncreateSkillCommand\n→ Command source: skills/plugin]
 
-MCP 服务器技能                         ← mcpSkillBuilders.ts（注入桥）
-    MCP Tool → Skill
-            │
-            └──────────────────────── → Command { source: 'mcp' }
+    G[MCP 服务器技能\nmcpSkillBuilders.ts 注入桥\nMCP Tool → Skill] --> H[Command source: mcp]
 ```
 
 ### 2.3 关键数据流
 
 **技能调用数据流**
-```
-用户输入 "/verify fix the null pointer bug"
-    │
-    ▼
-命令系统匹配 Command { name: 'verify', source: 'bundled' }
-    │
-    ▼
-command.getPromptForCommand(args="fix the null pointer bug", context)
-    │
-    ├── [若有 files] extractionPromise ??= extractBundledSkillFiles(...)
-    │       └── 惰性提取参考文件到 ~/.claude/bundled-skills/verify/
-    │
-    ▼
-返回 ContentBlockParam[]（提示词内容块）
-    │
-    ▼
-注入 Agent 上下文，模型执行技能逻辑
+
+```mermaid
+flowchart TD
+    A[用户输入 /verify fix the null pointer bug] --> B[命令系统匹配\nCommand name: verify, source: bundled]
+    B --> C[command.getPromptForCommand\nargs=fix the null pointer bug, context]
+    C --> D{有 files?}
+    D -- 是 --> E[extractionPromise ??= extractBundledSkillFiles\n惰性提取参考文件到\n~/.claude/bundled-skills/verify/]
+    D -- 否 --> F[返回 ContentBlockParam\n提示词内容块]
+    E --> F
+    F --> G[注入 Agent 上下文\n模型执行技能逻辑]
 ```
 
 **文件安全提取流**
-```
-safeWriteFile(path, content)
-    │
-    ├── open(p, O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0o600)
-    │       ← 防止竞争条件和符号链接攻击
-    │
-    └── fh.writeFile(content)
+
+```mermaid
+flowchart TD
+    A[safeWriteFile path, content] --> B[open p\nO_WRONLY/O_CREAT/O_EXCL/O_NOFOLLOW\n0o600\n防止竞争条件和符号链接攻击]
+    B --> C[fh.writeFile content]
 ```
 
 ## 三、核心实现走读

@@ -83,56 +83,23 @@ graph TD
 
 **会话生命周期中的状态变更**
 
-```
-进程启动
-    │
-    ▼
-STATE = getInitialState()
-    │  sessionId = randomUUID()
-    │  originalCwd = realpathSync(cwd()).normalize('NFC')
-    │  isInteractive = false (默认)
-    │  clientType = 'cli' (默认)
-    │
-    ▼
-main() 执行
-    │  setIsInteractive(true/false)
-    │  setClientType('cli'/'sdk-cli'/'remote'/...)
-    │  setInitialMainLoopModel(model)
-    │
-    ▼
-用户执行 /clear（新对话）
-    │  regenerateSessionId({ setCurrentAsParent: true })
-    │    → STATE.parentSessionId = 旧 sessionId
-    │    → STATE.sessionId = randomUUID()
-    │    → STATE.planSlugCache.delete(旧 sessionId)
-    │    → STATE.sessionProjectDir = null
-    │
-    ▼
-API 调用完成
-    │  STATE.totalCostUSD += response.cost
-    │  STATE.totalAPIDuration += duration
-    │  STATE.modelUsage[modelName].inputTokens += ...
-    │  STATE.lastApiCompletionTimestamp = Date.now()
-    │
-    ▼
-进程退出
-    │  STATE.inMemoryErrorLog → 可用于 /share bug report
-    │  STATE.lastMainRequestId → 发送缓存驱逐提示（cache eviction hint）
+```mermaid
+flowchart TD
+    A[进程启动] --> B[STATE = getInitialState\nsessionId = randomUUID\noriginalCwd = realpathSync NFC\nisInteractive = false\nclientType = cli]
+    B --> C[main 执行\nsetIsInteractive\nsetClientType\nsetInitialMainLoopModel]
+    C --> D[用户执行 /clear 新对话\nregenerateSessionId setCurrentAsParent\nparentSessionId = 旧 sessionId\nsessionId = randomUUID\nplanSlugCache.delete 旧 sessionId\nsessionProjectDir = null]
+    D --> E[API 调用完成\ntotalCostUSD += cost\ntotalAPIDuration += duration\nmodelUsage inputTokens++\nlastApiCompletionTimestamp = Date.now]
+    E --> F[进程退出\ninMemoryErrorLog → /share bug report\nlastMainRequestId → 缓存驱逐提示]
 ```
 
 **Prompt Cache 状态机（粘性锁存）**
 
-```
-初始状态: afkModeHeaderLatched = null
-
-首次进入 auto 模式
-    └─► afkModeHeaderLatched = true (设置后永不变回 false)
-
-此后即使用户切换出 auto 模式：
-    └─► afkModeHeaderLatched 仍为 true
-    └─► 每次 API 请求仍发送 AFK_MODE_BETA_HEADER
-
-目的：防止 ~50-70K token prompt cache 因模式切换被失效
+```mermaid
+stateDiagram-v2
+    [*] --> null : 初始状态 afkModeHeaderLatched = null
+    null --> true : 首次进入 auto 模式
+    true --> true : 用户切换出 auto 模式\n仍保持 true，每次 API 请求\n继续发送 AFK_MODE_BETA_HEADER
+    note right of true : 防止 ~50-70K token\nprompt cache 因模式切换失效
 ```
 
 ## 三、核心实现走读（怎么做的）

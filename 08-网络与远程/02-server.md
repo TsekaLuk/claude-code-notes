@@ -29,56 +29,43 @@
 
 ### 2.2 模块依赖关系图
 
-```
-外部客户端
-  │
-  │  POST /sessions
-  ▼
-┌──────────────────────────────────────────────────────┐
-│              src/server/                              │
-│                                                       │
-│  createDirectConnectSession()                         │
-│   ├── fetch POST /sessions  ──► 服务端（运行中）      │
-│   ├── connectResponseSchema (Zod 验证响应)            │
-│   └── 返回 DirectConnectConfig { wsUrl, sessionId }   │
-│                                                       │
-│  DirectConnectSessionManager                          │
-│   ├── connect() → WebSocket(wsUrl)                    │
-│   ├── sendMessage()     → ws.send(SDKUserMessage)     │
-│   ├── sendInterrupt()   → ws.send(control_request)    │
-│   └── respondToPermissionRequest() → ws.send(ctrl_rsp)│
-│                                                       │
-│  types.ts                                             │
-│   ├── ServerConfig / SessionInfo / SessionState       │
-│   └── SessionIndex（持久化至 ~/.claude/server-sessions.json）
-└──────────────────────────────────────────────────────┘
-         │                        │
-         ▼                        ▼
-  utils/slowOperations      utils/errors
-  (jsonParse/jsonStringify)  (errorMessage)
+```mermaid
+graph TD
+    EXT[外部客户端\nPOST /sessions]
+
+    subgraph server["src/server/"]
+        CDS[createDirectConnectSession\nfetch POST /sessions\nconnectResponseSchema Zod 验证\n返回 DirectConnectConfig]
+        DCM[DirectConnectSessionManager\nconnect WebSocket\nsendMessage / sendInterrupt\nrespondToPermissionRequest]
+        TYPES[types.ts\nServerConfig / SessionInfo\nSessionIndex → ~/.claude/server-sessions.json]
+    end
+
+    EXT --> CDS
+    CDS -->|服务端运行中| SRV[服务端]
+    server --> SLOW[utils/slowOperations\njsonParse/jsonStringify]
+    server --> ERR[utils/errors\nerrorMessage]
 ```
 
 ### 2.3 关键数据流
 
 **会话创建流程：**
-```
-调用方
-  → createDirectConnectSession({ serverUrl, authToken, cwd })
-  → fetch POST ${serverUrl}/sessions   (含 JSON body: { cwd, ... })
-  → 服务端返回 { session_id, ws_url, work_dir }
-  → Zod 校验 connectResponseSchema
-  → 返回 { config: DirectConnectConfig, workDir }
+```mermaid
+flowchart TD
+    A[调用方] --> B[createDirectConnectSession\nserverUrl / authToken / cwd]
+    B --> C[fetch POST serverUrl/sessions\nJSON body: cwd ...]
+    C --> D[服务端返回\nsession_id / ws_url / work_dir]
+    D --> E[Zod 校验 connectResponseSchema]
+    E --> F[返回 DirectConnectConfig / workDir]
 ```
 
 **消息接收流程（WebSocket 侧）：**
-```
-服务端推送 NDJSON（换行分隔 JSON）
-  → ws message event → 按 '\n' 分割
-  → 每行 jsonParse → isStdoutMessage 类型守卫
-  → 分类路由：
-      control_request (can_use_tool) → callbacks.onPermissionRequest
-      keep_alive / control_response  → 丢弃
-      SDKMessage (assistant/result/…) → callbacks.onMessage
+```mermaid
+flowchart TD
+    A[服务端推送 NDJSON\n换行分隔 JSON] --> B[ws message event\n按 \\n 分割]
+    B --> C[每行 jsonParse\nisStdoutMessage 类型守卫]
+    C --> D{分类路由}
+    D -->|control_request can_use_tool| E[callbacks.onPermissionRequest]
+    D -->|keep_alive / control_response| F[丢弃]
+    D -->|SDKMessage assistant/result/...| G[callbacks.onMessage]
 ```
 
 **消息发送格式：**

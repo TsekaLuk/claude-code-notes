@@ -31,72 +31,60 @@
 
 ### 2.2 模块依赖关系图
 
-```
-src/constants/  ◄── 无依赖（叶节点）
-    │
-    ├── keys.ts ──────────────────────────────► services/analytics/growthbook.ts
-    ├── oauth.ts ─────────────────────────────► services/oauth/client.ts
-    ├── product.ts ───────────────────────────► bridge/sessionIdCompat.ts
-    └── messages.ts（极简常量）
+```mermaid
+graph LR
+    subgraph constants[src/constants/ 无依赖叶节点]
+        keys[keys.ts] --> gb[services/analytics/growthbook.ts]
+        oauth[oauth.ts] --> client[services/oauth/client.ts]
+        prod[product.ts] --> bridge[bridge/sessionIdCompat.ts]
+        msg[messages.ts 极简常量]
+    end
 
-src/types/ ◄── 仅依赖 types/ 内部或 bun:bundle
-    │
-    ├── ids.ts ──────────────────────────────► bootstrap/state.ts (getSessionId)
-    ├── permissions.ts ──────────────────────► utils/permissions/ (实现层)
-    ├── hooks.ts ────────────────────────────► utils/hooks/ (执行层)
-    └── plugin.ts / logs.ts / command.ts
+    subgraph types[src/types/ 仅依赖内部或 bun:bundle]
+        ids[ids.ts] --> state[bootstrap/state.ts getSessionId]
+        perms[permissions.ts] --> utilPerms[utils/permissions/ 实现层]
+        hooks[hooks.ts] --> utilHooks[utils/hooks/ 执行层]
+        others[plugin.ts / logs.ts / command.ts]
+    end
 
-src/migrations/ ◄── 依赖 utils/settings, utils/auth, services/analytics
-    │
-    └── 启动时由 setup.ts 统一调用，每个函数幂等
+    subgraph migrations[src/migrations/]
+        mig[启动时由 setup.ts 统一调用，每个函数幂等]
+    end
+    migrations -.依赖.-> set[utils/settings, utils/auth, services/analytics]
 
-src/memdir/ ◄── 依赖 bootstrap/state, utils/settings, services/analytics
-    │
-    └── 系统提示构建时由 claudemd.ts 调用 loadMemoryPrompt()
+    subgraph memdir[src/memdir/]
+        mem[系统提示构建时由 claudemd.ts 调用 loadMemoryPrompt]
+    end
+    memdir -.依赖.-> memdeps[bootstrap/state, utils/settings, services/analytics]
 ```
 
 ### 2.3 关键数据流
 
 **迁移执行流程**：
-```
-应用启动 setup.ts
-    │
-    ▼
-migrateAutoUpdatesToSettings()
-    │  检查 globalConfig.autoUpdates === false
-    │  若是且非 native 保护 → 写入 userSettings.env.DISABLE_AUTOUPDATER
-    │  → saveGlobalConfig（移除 autoUpdates 字段）
-    │
-▼
-migrateSonnet45ToSonnet46()
-    │  仅限 firstParty 且 Pro/Max/Team Premium 用户
-    │  检查 userSettings.model 是否为 4.5 固定版本字符串
-    │  若是 → 更新为 'sonnet'（或 'sonnet[1m]'）
-    │  → 若 numStartups > 1 → saveGlobalConfig（记录迁移时间戳）
-    │
-▼
-...（其他 8 个迁移函数）
+```mermaid
+flowchart TD
+    setup[应用启动 setup.ts] --> mAuto[migrateAutoUpdatesToSettings]
+    mAuto --> mAutoCheck[检查 globalConfig.autoUpdates<br>写入 userSettings.env.DISABLE_AUTOUPDATER<br>saveGlobalConfig 移除字段]
+    mAutoCheck --> mSonnet[migrateSonnet45ToSonnet46]
+    mSonnet --> mSonnetCheck[检查 userSettings.model 并在符合条件时更新为 sonnet<br>saveGlobalConfig 记录迁移时间戳]
+    mSonnetCheck --> others[... 其他 8 个迁移函数]
 ```
 
 **记忆提示加载流程**：
-```
-系统提示构建
-    │
-    ▼
-loadMemoryPrompt()
-    │
-    ├─[KAIROS + autoEnabled]─► buildAssistantDailyLogPrompt()（每日日志模式）
-    │
-    ├─[TEAMMEM enabled]──────► buildCombinedMemoryPrompt()（个人+团队）
-    │
-    ├─[autoEnabled]──────────► buildMemoryLines('auto memory', autoDir)
-    │         │                    │
-    │         │                ensureMemoryDirExists(autoDir)
-    │         │
-    │         └─► loadMemoryPrompt 返回拼接文本（注入系统提示）
-    │
-    └─[disabled]─────────────► logEvent('tengu_memdir_disabled')
-                                return null
+```mermaid
+flowchart TD
+    sys[系统提示构建] --> load[loadMemoryPrompt]
+    
+    load -- "KAIROS + autoEnabled" --> daily[buildAssistantDailyLogPrompt 每日日志模式]
+    load -- "TEAMMEM enabled" --> combined[buildCombinedMemoryPrompt 个人+团队]
+    load -- "autoEnabled" --> autoLines[buildMemoryLines 'auto memory', autoDir]
+    autoLines --> ensure[ensureMemoryDirExists dir]
+    ensure --> ret[loadMemoryPrompt 返回拼接文本并注入系统提示]
+    daily --> ret
+    combined --> ret
+    
+    load -- "disabled" --> disALog[logEvent tengu_memdir_disabled]
+    disALog --> retNull[return null]
 ```
 
 ## 三、核心实现走读

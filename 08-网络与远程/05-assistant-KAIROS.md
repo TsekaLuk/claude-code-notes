@@ -29,79 +29,75 @@ KAIROS（内部代号）是 Claude Code 的**助手守护模式**，区别于普
 
 ### 2.2 模块依赖关系图
 
-```
-Claude.ai Web / 用户触发任务
-         │
-         │ WebSocket 推送工作任务
-         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  守护端（Claude Code --assistant）                           │
-│                                                             │
-│  main.tsx — feature('KAIROS') 门控                          │
-│   ├── assistantModule.isAssistantMode()                     │
-│   ├── assistantModule.initializeAssistantTeam()             │
-│   │     → 预播种进程内团队（避免 TeamCreate 调用）          │
-│   ├── kairosGate.isKairosEnabled()  (GrowthBook 检查授权)   │
-│   ├── workerType = 'claude_code_assistant'                  │
-│   └── initReplBridge()  → bridge 主循环（接受工作任务）      │
-└─────────────────────────────────────────────────────────────┘
-         │
-         │ CCR 会话 WebSocket（session events API）
-         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  观察端（claude assistant [sessionId]）                      │
-│                                                             │
-│  main.tsx 3259-3353 行                                      │
-│   ├── discoverAssistantSessions()  自动发现守护会话          │
-│   ├── createRemoteSessionConfig(  viewerOnly=true  )        │
-│   ├── setKairosActive(true) + setUserMsgOptIn(true)         │
-│   ├── isBriefOnly = true  (Brief 消息布局)                  │
-│   └── launchRepl(... remoteSessionConfig)                   │
-│                                                             │
-│  src/assistant/sessionHistory.ts                            │
-│   ├── createHistoryAuthCtx(sessionId)                       │
-│   ├── fetchLatestEvents()  (anchor_to_latest=true)          │
-│   └── fetchOlderEvents(beforeId)  (before_id cursor)        │
-└─────────────────────────────────────────────────────────────┘
-
-src/remote/RemoteSessionManager.ts (viewerOnly 行为修改)
-  ├── 不发送 cancelSession()（Ctrl+C 不中断远程 agent）
-  └── 不更新 session title
+```mermaid
+flowchart TD
+    web[Claude.ai Web / 用户触发任务] -- "WebSocket 推送工作任务" --> daemon
+    
+    subgraph daemon[守护端 Claude Code --assistant]
+        main[main.tsx — feature 'KAIROS' 门控]
+        main --> a1[assistantModule.isAssistantMode]
+        main --> a2[assistantModule.initializeAssistantTeam<br>预播种进程内团队]
+        main --> a3[kairosGate.isKairosEnabled<br>GrowthBook 检查授权]
+        main --> a4["workerType = 'claude_code_assistant'"]
+        main --> a5[initReplBridge<br>bridge 主循环，接受工作任务]
+    end
+    
+    daemon -- "CCR 会话 WebSocket (session events API)" --> observer
+    
+    subgraph observer[观察端 claude assistant sessionId]
+        oMain[main.tsx 3259-3353 行]
+        oMain --> b1[discoverAssistantSessions 自动发现守护会话]
+        oMain --> b2[createRemoteSessionConfig viewerOnly=true]
+        oMain --> b3[setKairosActive true + setUserMsgOptIn true]
+        oMain --> b4[isBriefOnly = true Brief 消息布局]
+        oMain --> b5[launchRepl ...remoteSessionConfig]
+        
+        oHist[src/assistant/sessionHistory.ts]
+        oHist --> c1[createHistoryAuthCtx sessionId]
+        oHist --> c2[fetchLatestEvents anchor_to_latest=true]
+        oHist --> c3[fetchOlderEvents before_id cursor]
+    end
+    
+    subgraph remote[src/remote/RemoteSessionManager.ts viewerOnly 行为修改]
+        r1[不发送 cancelSession Ctrl+C 不中断远程 agent]
+        r2[不更新 session title]
+    end
+    observer -.依赖.-> remote
 ```
 
 ### 2.3 关键数据流
 
 **守护端启动：**
-```
-claude --assistant
-  → main.tsx: options.assistant == true
-  → assistantModule.markAssistantForced()  (跳过 GrowthBook 重复检查)
-  → workerType = 'claude_code_assistant'
-  → initReplBridge() → runBridgeLoop()
-  → 注册为 CCR 环境，持续接受工作任务
+```mermaid
+flowchart TD
+    cmd[claude --assistant] --> m[main.tsx: options.assistant == true]
+    m --> mk[assistantModule.markAssistantForced 跳过 GrowthBook 重复检查]
+    mk --> wt["workerType = 'claude_code_assistant'"]
+    wt --> init[initReplBridge → runBridgeLoop]
+    init --> reg[注册为 CCR 环境，持续接受工作任务]
 ```
 
 **观察端连接：**
-```
-claude assistant [sessionId]
-  → feature('KAIROS') 门控
-  → discoverAssistantSessions()  (列出当前 org 的 assistant bridge 环境)
-  → 用户选择目标 sessionId（若多于1个）
-  → createRemoteSessionConfig(sessionId, ..., viewerOnly=true)
-  → setKairosActive(true) 激活 Brief 模式
-  → launchRepl(remoteSessionConfig)
-  → RemoteSessionManager.connect() → WebSocket 订阅事件流
+```mermaid
+flowchart TD
+    cmd[claude assistant sessionId] --> feat[feature 'KAIROS' 门控]
+    feat --> disc[discoverAssistantSessions 列出当前 org 的 assistant bridge 环境]
+    disc --> sel[用户选择目标 sessionId]
+    sel --> cr[createRemoteSessionConfig ...viewerOnly=true]
+    cr --> setk[setKairosActive 激活 Brief 模式]
+    setk --> launch[launchRepl remoteSessionConfig]
+    launch --> conn[RemoteSessionManager.connect → WebSocket 订阅事件流]
 ```
 
 **历史消息懒加载（分页）：**
-```
-用户滚动到顶部
-  → useAssistantHistory() hook
-  → 首次: createHistoryAuthCtx(sessionId) 获取鉴权头
-  → fetchLatestEvents(ctx, 100)  获取最新 100 条
-  → 用户继续滚动
-  → fetchOlderEvents(ctx, firstId, 100)  用 firstId 作 cursor 获取更早消息
-  → 消息插入到 REPL 消息列表顶部
+```mermaid
+flowchart TD
+    scroll[用户滚动到顶部] --> hook[useAssistantHistory hook]
+    hook --> first[首次: createHistoryAuthCtx sessionId 获取鉴权头]
+    first --> fetch[fetchLatestEvents ctx, 100 获取最新 100 条]
+    fetch --> scroll2[用户继续滚动]
+    scroll2 --> older[fetchOlderEvents ctx, firstId, 100 用 firstId 作 cursor]
+    older --> ins[消息插入到 REPL 消息列表顶部]
 ```
 
 ---

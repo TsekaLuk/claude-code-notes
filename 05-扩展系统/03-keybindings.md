@@ -62,88 +62,44 @@ Claude Code 是基于 Ink（React for terminal）构建的 TUI 应用，键位�
 
 ### 2.2 模块依赖关系图
 
-```
-CLI 启动
-    │
-    ├── loadKeybindingsSyncWithWarnings()   ← loadUserBindings.ts
-    │       │
-    │       ├── parseBindings(DEFAULT_BINDINGS)  ← parser.ts ← defaultBindings.ts
-    │       ├── readFileSync(keybindings.json)   ← 用户配置
-    │       ├── parseBindings(userBlocks)
-    │       ├── mergedBindings = [...defaults, ...userParsed]  ← 合并（后者覆盖）
-    │       └── validateBindings(userBlocks)     ← validate.ts
-    │                   │
-    │                   ├── validateUserConfig()
-    │                   ├── checkDuplicates()    ← reservedShortcuts.ts
-    │                   └── checkReservedShortcuts()
-    │
-    ├── initializeKeybindingWatcher()       ← chokidar 热重载
-    │       └── keybindingsChanged.emit()   ← Signal 通知 UI
-    │
-    └── <KeybindingProviderSetup>           ← KeybindingProviderSetup.tsx
-            │
-            └── <KeybindingProvider bindings={mergedBindings}>  ← KeybindingContext.tsx
-                    │
-                    ├── resolve()           ← resolver.ts
-                    ├── setPendingChord()
-                    ├── registerHandler()   ← 组件注册处理器
-                    └── invokeAction()
-
-组件内:
-    useKeybinding('chat:submit', handler, { context: 'Chat' })
-        │
-        ├── keybindingContext.resolve(input, key, contexts)
-        └── event.stopImmediatePropagation()  ← 阻止事件穿透
+```mermaid
+graph TD
+    A[CLI 启动] --> B[loadKeybindingsSyncWithWarnings\nloadUserBindings.ts]
+    B --> B1[parseBindings DEFAULT_BINDINGS\nparser.ts ← defaultBindings.ts]
+    B --> B2[readFileSync keybindings.json\n用户配置]
+    B --> B3[parseBindings userBlocks]
+    B --> B4[mergedBindings = defaults + userParsed\n合并，后者覆盖]
+    B --> B5[validateBindings userBlocks\nvalidate.ts\nvalidateUserConfig\ncheckDuplicates\ncheckReservedShortcuts]
+    A --> C[initializeKeybindingWatcher\nchokidar 热重载\nkeybindingsChanged.emit → Signal 通知 UI]
+    A --> D[KeybindingProviderSetup\nKeybindingProviderSetup.tsx]
+    D --> E[KeybindingProvider bindings=mergedBindings\nKeybindingContext.tsx\nresolve / setPendingChord\nregisterHandler / invokeAction]
+    F[组件内\nuseKeybinding chat:submit, handler\ncontext: Chat] --> G[keybindingContext.resolve input, key, contexts]
+    F --> H[event.stopImmediatePropagation\n阻止事件穿透]
 ```
 
 ### 2.3 关键数据流
 
 **按键到动作的完整路径**
-```
-用户按下 Ctrl+Enter（终端 TUI）
-    │
-    ▼
-Ink useInput 回调: (input='', key={ctrl:true, return:true})
-    │
-    ▼
-useKeybinding/useKeybindings hook
-    │
-    ├── keybindingContext.resolve(input, key, ['Chat', 'Global'])
-    │       │
-    │       └── resolveKeyWithChordState(...)
-    │               ├── buildKeystroke(input, key)  → { key:'enter', ctrl:true }
-    │               ├── testChord = [{key:'enter', ctrl:true}]
-    │               ├── 过滤 contextBindings（Chat + Global 上下文）
-    │               ├── 无更长和弦前缀 → 查找精确匹配
-    │               └── 返回 { type:'match', action:'chat:submit' }
-    │
-    ├── action === 'chat:submit' → handler()
-    └── event.stopImmediatePropagation()
 
+```mermaid
+flowchart TD
+    A[用户按下 Ctrl+Enter 终端 TUI] --> B[Ink useInput 回调\ninput='', key={ctrl:true, return:true}]
+    B --> C[useKeybinding/useKeybindings hook]
+    C --> D[keybindingContext.resolve\ninput, key, Chat/Global]
+    D --> E[resolveKeyWithChordState\nbuildKeystroke → key: enter, ctrl:true\ntestChord = [{key:enter, ctrl:true}]\n过滤 contextBindings\n返回 type: match, action: chat:submit]
+    E --> F[action === chat:submit → handler]
+    F --> G[event.stopImmediatePropagation\n阻止事件穿透]
 ```
 
 **热重载数据流**
-```
-用户编辑 ~/.claude/keybindings.json
-    │
-    ▼
-chokidar 'change' 事件 → handleChange(path)
-    │
-    ▼
-loadKeybindings()（异步）
-    ├── 解析新内容
-    ├── 合并 defaults + 新用户绑定
-    └── 运行验证
-    │
-    ▼
-cachedBindings = result.bindings
-keybindingsChanged.emit(result)
-    │
-    ▼
-KeybindingProviderSetup 监听器更新 bindings state
-    │
-    ▼
-React 重渲染 → 新绑定立即生效（无需重启）
+
+```mermaid
+flowchart TD
+    A[用户编辑 ~/.claude/keybindings.json] --> B[chokidar change 事件\nhandleChange path]
+    B --> C[loadKeybindings 异步\n解析新内容\n合并 defaults + 新用户绑定\n运行验证]
+    C --> D[cachedBindings = result.bindings\nkeybindingsChanged.emit result]
+    D --> E[KeybindingProviderSetup 监听器\n更新 bindings state]
+    E --> F[React 重渲染\n新绑定立即生效，无需重启]
 ```
 
 ## 三、核心实现走读

@@ -38,83 +38,45 @@
 
 ### 2.2 模块依赖关系图
 
-```
-SDK 调用方（claude-desktop / cowork / agent-sdk）
-        │ new QueryEngine(config)
-        ▼
-┌────────────────────────────────────────────────────────────────┐
-│                        QueryEngine                              │
-│                                                                │
-│  构造时：                                                       │
-│    mutableMessages = config.initialMessages ?? []              │
-│    abortController = config.abortController ?? new             │
-│    totalUsage = EMPTY_USAGE                                    │
-│                                                                │
-│  submitMessage(prompt):                                        │
-│    ┌─────────────────────────────────────────────────────┐    │
-│    │ 1. processUserInput() — 处理斜杠命令、附件、消息转换 │    │
-│    │ 2. fetchSystemPromptParts() — 组装系统提示词         │    │
-│    │ 3. getCoordinatorUserContext() — 注入协调器上下文    │    │
-│    │ 4. loadMemoryPrompt() — 加载记忆提示词（可选）       │    │
-│    │ 5. recordTranscript() — 持久化消息到磁盘             │    │
-│    │ 6. for await query() — 执行查询循环                  │    │
-│    │    │ 按消息类型 switch 转换为 SDKMessage yield       │    │
-│    │ 7. yield result message — 汇总统计信息               │    │
-│    └─────────────────────────────────────────────────────┘    │
-└────────────────────────────────────────────────────────────────┘
-        │
-        ▼
-  query.ts 的 query() 函数（单次查询循环）
-```
+```mermaid
+graph TD
+    SDK[SDK 调用方\nclaude-desktop / cowork / agent-sdk\nnew QueryEngine config]
 
-```
-数据持久化关系：
+    subgraph QE["QueryEngine"]
+        CTOR[构造时\nmutableMessages = initialMessages\nabortController / totalUsage]
+        SUB[submitMessage prompt\n1. processUserInput 斜杠命令/消息转换\n2. fetchSystemPromptParts 组装系统提示词\n3. getCoordinatorUserContext 注入协调器上下文\n4. loadMemoryPrompt 记忆提示词\n5. recordTranscript 持久化到磁盘\n6. for await query 执行查询循环\n7. yield result message 汇总统计]
+    end
 
-mutableMessages ──► recordTranscript() ──► 磁盘 JSONL 文件
-                                              │
-                                              ▼
-                                       /resume 时可恢复
+    QUERY[query.ts query 函数\n单次查询循环]
+    DISK[磁盘 JSONL 文件\n/resume 时可恢复]
+
+    SDK --> QE
+    QE --> QUERY
+    SUB --> DISK
 ```
 
 ### 2.3 关键数据流
 
 **`submitMessage()` 的完整数据流（简化版）：**
 
-```
-用户 prompt（字符串或 ContentBlockParam[]）
-        │
-        ▼
-① processUserInput() — 斜杠命令处理、消息格式化
-   → messagesFromUserInput (含用户消息、附件等)
-        │
-        ▼
-② this.mutableMessages.push(...messagesFromUserInput)
-        │
-        ▼
-③ recordTranscript(messages) — 写磁盘（阻塞或 fire-and-forget）
-        │
-        ▼
-④ 组装查询参数：
-   fetchSystemPromptParts() → systemPrompt
-   getCoordinatorUserContext() → 协调器工具上下文
-   loadMemoryPrompt() → 记忆机制提示词（条件性）
-        │
-        ▼
-⑤ for await (message of query({messages, systemPrompt, ...}))
-   │
-   ├── message.type === 'assistant' → push to mutableMessages, yield SDKAssistantMessage
-   ├── message.type === 'user'      → push to mutableMessages, yield SDKUserMessage
-   ├── message.type === 'stream_event' → 更新 currentMessageUsage / lastStopReason
-   │                                   → includePartialMessages ? yield : 丢弃
-   ├── message.type === 'attachment' → 处理 structured_output / max_turns_reached / queued_command
-   └── message.type === 'system' compact_boundary → 持久化截断历史
-        │
-        ▼
-⑥ yield SDKResultMessage {
-     type: 'result',
-     total_cost_usd, usage, modelUsage,
-     permission_denials, stop_reason, ...
-   }
+```mermaid
+flowchart TD
+    A[用户 prompt\n字符串或 ContentBlockParam] --> B[processUserInput\n斜杠命令处理 / 消息格式化\n→ messagesFromUserInput]
+    B --> C[mutableMessages.push\nmessagesFromUserInput]
+    C --> D[recordTranscript messages\n写磁盘 阻塞或 fire-and-forget]
+    D --> E[组装查询参数\nfetchSystemPromptParts → systemPrompt\ngetCoordinatorUserContext / loadMemoryPrompt]
+    E --> F[for await query\nmessages / systemPrompt ...]
+    F --> G{message.type switch}
+    G -->|assistant| H[push mutableMessages\nyield SDKAssistantMessage]
+    G -->|user| I[push mutableMessages\nyield SDKUserMessage]
+    G -->|stream_event| J[更新 currentMessageUsage\nincludePartialMessages ? yield : 丢弃]
+    G -->|attachment| K[处理 structured_output\nmax_turns_reached / queued_command]
+    G -->|system compact_boundary| L[持久化截断历史]
+    H --> M[yield SDKResultMessage\ntotal_cost_usd / usage / permission_denials / stop_reason]
+    I --> M
+    J --> M
+    K --> M
+    L --> M
 ```
 
 ---

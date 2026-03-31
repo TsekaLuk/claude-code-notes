@@ -52,72 +52,67 @@
 
 ### 2.2 模块依赖关系图
 
-```
-React 组件树（Ink UI）
-  │
-  │ Context.Provider 包裹
-  ▼
-┌──────────────────────────────────────────────────────────────┐
-│               src/context/ 提供器层                           │
-│                                                              │
-│  MailboxProvider  → useMailbox()                             │
-│  VoiceProvider    → useVoiceState()                          │
-│  ModalContext     → useIsInsideModal() / useModalOrTerminalSize│
-│  StatsProvider    → useStats()                               │
-│  OverlayContext   → useRegisterOverlay() / useIsOverlayActive│
-│  NotificationsCtx → useNotifications().addNotification()     │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    react[React 组件树 Ink UI] -- Context.Provider 包裹 --> ctx
+    
+    subgraph ctx[src/context/ 提供器层]
+        m[MailboxProvider → useMailbox]
+        v[VoiceProvider → useVoiceState]
+        mc[ModalContext → useIsInsideModal / useModalOrTerminalSize]
+        st[StatsProvider → useStats]
+        oc[OverlayContext → useRegisterOverlay / useIsOverlayActive]
+        nc[NotificationsCtx → useNotifications.addNotification]
+    end
 
-┌──────────────────────────────────────────────────────────────┐
-│              src/context.ts (LLM 系统提示构建)                │
-│                                                              │
-│  getSystemContext()                                          │
-│    ├── getGitStatus()  → git status/log/branch (memoized)   │
-│    └── getSystemPromptInjection() (缓存破坏，ant-only)       │
-│                                                              │
-│  getUserContext()                                            │
-│    ├── getClaudeMds()  → CLAUDE.md 文件链 (memoized)        │
-│    └── getLocalISODate()  → 当前日期                        │
-└──────────────────────────────────────────────────────────────┘
+    subgraph ts[src/context.ts LLM 系统提示构建]
+        gsc[getSystemContext] --> ggs[getGitStatus → git status/log/branch memoized]
+        gsc --> gspi[getSystemPromptInjection 缓存破坏, ant-only]
+        
+        guc[getUserContext] --> gcmd[getClaudeMds → CLAUDE.md 文件链 memoized]
+        guc --> glid[getLocalISODate → 当前日期]
+    end
 
-┌──────────────────────────────────────────────────────────────┐
-│            src/native-ts/ 原生模块 TS 替代                    │
-│                                                              │
-│  color-diff/   → 语法高亮 diff（highlight.js + diff 库）     │
-│  file-index/   → 模糊搜索（自实现 nucleo 评分算法）           │
-│  yoga-layout/  → Flex 布局引擎（Ink 渲染核心依赖）           │
-└──────────────────────────────────────────────────────────────┘
-      ↑
-  运行时根据 typeof Bun / 平台选择：
-  - 优先：Rust NAPI .node 模块（dlopen）
-  - 降级：同目录 TypeScript 实现
+    subgraph nts[src/native-ts/ 原生模块 TS 替代]
+        cd[color-diff/ → 语法高亮 diff highlight.js + diff库]
+        fi[file-index/ → 模糊搜索 nucleo 评分算法]
+        yl[yoga-layout/ → Flex 布局引擎 Ink 渲染核心]
+    end
+    
+    sel[运行时根据 typeof Bun / 平台选择<br>优先：Rust NAPI .node 模块 dlopen<br>降级：同目录 TypeScript 实现] -.-> nts
 ```
 
 ### 2.3 关键数据流
 
 **系统提示上下文构建：**
-```
-LLM API 请求发起前
-  → getSystemContext()  (首次调用时并发执行)
-      getGitStatus() → git status + log + branch (均并发)
-      getSystemPromptInjection() → 缓存破坏字符串
-  → getUserContext()
-      getClaudeMds() → 遍历 CLAUDE.md 文件链
-      getLocalISODate() → 今日日期
-  → 合并为 { gitStatus, claudeMd, currentDate, ... }
-  → 插入 LLM system 字段
+```mermaid
+flowchart TD
+    req[LLM API 请求发起前] --> gsc[getSystemContext 首次调用时并发执行]
+    req --> guc[getUserContext]
+    
+    gsc --> ggit[getGitStatus → git status + log + branch 均并发]
+    gsc --> qspi[getSystemPromptInjection → 缓存破坏字符串]
+    
+    guc --> gmds[getClaudeMds → 遍历 CLAUDE.md 文件链]
+    guc --> date[getLocalISODate → 今日日期]
+    
+    ggit --> merge[合并为 gitStatus, claudeMd, currentDate, ... ]
+    qspi --> merge
+    gmds --> merge
+    date --> merge
+    merge --> ins[插入 LLM system 字段]
 ```
 
 **模糊文件搜索流程（native-ts/file-index）：**
-```
-用户键入文件名片段
-  → FileIndex.search(query, limit)
-  → 检查 topLevelCache（空 query 加速）
-  → 对 readyCount 范围内的路径逐一计算 nucleo 评分
-      charBits 位图过滤（快速排除不含所有字符的路径）
-      smithWatermanScore() → 连续匹配加分 + gap 惩罚
-  → 排序取前 limit 个结果返回
-  → 每 4ms 让出事件循环（防 UI 卡顿）
+```mermaid
+flowchart TD
+    input[用户键入文件名片段] --> search[FileIndex.search query, limit]
+    search --> top[检查 topLevelCache 空 query 加速]
+    top --> calc[对 readyCount 范围内的路径逐一计算 nucleo 评分]
+    calc --> bits[charBits 位图过滤 快速排除不含所有字符的路径]
+    bits --> sw[smithWatermanScore → 连续匹配加分 + gap 惩罚]
+    sw --> sort[排序取前 limit 个结果返回]
+    sort --> yield[每 4ms 让出事件循环 防 UI 卡顿]
 ```
 
 ---
