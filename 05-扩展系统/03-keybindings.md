@@ -70,7 +70,7 @@ graph TD
     B --> B3[parseBindings userBlocks]
     B --> B4[mergedBindings = defaults + userParsed\n合并，后者覆盖]
     B --> B5[validateBindings userBlocks\nvalidate.ts\nvalidateUserConfig\ncheckDuplicates\ncheckReservedShortcuts]
-    A --> C[initializeKeybindingWatcher\nchokidar 热重载\nkeybindingsChanged.emit → Signal 通知 UI]
+    A --> C[initializeKeybindingWatcher\nchokidar 热重载\nkeybindingsChanged.emit ➜ Signal 通知 UI]
     A --> D[KeybindingProviderSetup\nKeybindingProviderSetup.tsx]
     D --> E[KeybindingProvider bindings=mergedBindings\nKeybindingContext.tsx\nresolve / setPendingChord\nregisterHandler / invokeAction]
     F[组件内\nuseKeybinding chat:submit, handler\ncontext: Chat] --> G[keybindingContext.resolve input, key, contexts]
@@ -83,11 +83,11 @@ graph TD
 
 ```mermaid
 flowchart TD
-    A[用户按下 Ctrl+Enter 终端 TUI] --> B[Ink useInput 回调\ninput='', key={ctrl:true, return:true}]
+    A[用户按下 Ctrl+Enter 终端 TUI] --> B["Ink useInput 回调<br/>input='', key={ctrl:true, return:true}"]
     B --> C[useKeybinding/useKeybindings hook]
-    C --> D[keybindingContext.resolve\ninput, key, Chat/Global]
-    D --> E[resolveKeyWithChordState\nbuildKeystroke → key: enter, ctrl:true\ntestChord = [{key:enter, ctrl:true}]\n过滤 contextBindings\n返回 type: match, action: chat:submit]
-    E --> F[action === chat:submit → handler]
+    C --> D["keybindingContext.resolve<br/>input, key, Chat/Global"]
+    D --> E["resolveKeyWithChordState<br/>buildKeystroke ➜ key: enter, ctrl:true<br/>testChord = [{key:enter, ctrl:true}]<br/>过滤 contextBindings<br/>返回 type: match, action: chat:submit"]
+    E --> F["action === chat:submit ➜ handler"]
     F --> G[event.stopImmediatePropagation\n阻止事件穿透]
 ```
 

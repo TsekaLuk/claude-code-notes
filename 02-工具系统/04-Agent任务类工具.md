@@ -103,18 +103,18 @@ AgentTool.call()
 ```mermaid
 flowchart TD
     A[AgentTool.call 入口] --> B{isForkSubagentEnabled\n且有 subagent_type?}
-    B -- 是 --> C[forkSubagent\n当前进程 fork 子代理]
-    B -- 否 --> D{isolation === remote?}
-    D -- 是 --> E[registerRemoteAgentTask\n远程 CCR 后台执行]
-    D -- 否 --> F{isolation === worktree?}
-    F -- 是 --> G[createAgentWorktree\ngit worktree 隔离]
+    B -- "是" --> C[forkSubagent\n当前进程 fork 子代理]
+    B -- "否" --> D{isolation === remote?}
+    D -- "是" --> E[registerRemoteAgentTask\n远程 CCR 后台执行]
+    D -- "否" --> F{isolation === worktree?}
+    F -- "是" --> G[createAgentWorktree\ngit worktree 隔离]
     G --> H[runAgent in worktree\n完成后清理 worktree]
-    F -- 否 --> I{isAgentSwarmsEnabled\n且有 name?}
-    I -- 是 --> J[spawnTeammate\n启动 Swarm Teammate]
-    I -- 否 --> K{run_in_background?}
-    K -- 是 --> L[registerAsyncAgent\n后台异步代理]
+    F -- "否" --> I{isAgentSwarmsEnabled\n且有 name?}
+    I -- "是" --> J[spawnTeammate\n启动 Swarm Teammate]
+    I -- "否" --> K{run_in_background?}
+    K -- "是" --> L[registerAsyncAgent\n后台异步代理]
     L --> M[返回 async_launched\n含 agentId 和 outputFile]
-    K -- 否 --> N[同步 runAgent\n等待完成]
+    K -- "否" --> N[同步 runAgent\n等待完成]
     N --> O[finalizeAgentTool\n返回 completed + result]
 ```
 
@@ -135,16 +135,16 @@ SendMessageTool.call({ to, message })
 ```mermaid
 flowchart TD
     S[SendMessageTool.call\nto + message] --> R{to 目标解析}
-    R -- leader --> T1[TEAM_LEAD_NAME\n领队代理]
-    R -- broadcast --> T2[所有 Teammates\n群发]
-    R -- @agent-name --> T3[按名称查找 AgentId\nInProcessTeammateTask]
-    R -- AgentId --> T4[直接路由\n已知目标]
+    R -- "leader" --> T1[TEAM_LEAD_NAME\n领队代理]
+    R -- "broadcast" --> T2[所有 Teammates\n群发]
+    R -- "@agent-name" --> T3[按名称查找 AgentId\nInProcessTeammateTask]
+    R -- "AgentId" --> T4[直接路由\n已知目标]
     T1 --> W[writeToMailbox\n写入目标邮箱]
     T2 --> W
     T3 --> W
     T4 --> W
-    W --> MB[~/.claude/mailboxes\n/{agentId}/inbox/\n带时间戳的 JSON 文件]
-    MB --> P[目标 Agent 轮询读取\n按时间戳顺序处理]
+    W --> MB["~/.claude/mailboxes<br/>/{agentId}/inbox/<br/>带时间戳的 JSON 文件"]
+    MB --> P["目标 Agent 轮询读取<br/>按时间戳顺序处理"]
 ```
 
 ## 三、核心实现走读

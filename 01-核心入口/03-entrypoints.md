@@ -43,18 +43,18 @@ MCP 服务器模式的核心函数。创建 MCP `Server` 实例，注册 `list_t
 ```mermaid
 flowchart TD
     A[进程入口 Bun 执行] --> B[entrypoints/cli.tsx\n快速路径分发]
-    B -- --version --> C[直接输出，零导入]
-    B -- remote-control --> D[bridge/bridgeMain.js]
-    B -- daemon --> E[daemon/main.js]
-    B -- ps/logs/attach/kill --> F[cli/bg.js]
-    B -- environment-runner --> G[environment-runner/main.js]
-    B -- self-hosted-runner --> H[self-hosted-runner/main.js]
-    B -- --daemon-worker --> I[daemon/workerRegistry.js]
-    B -- 所有其他路径 --> J[main.tsx]
+    B --" --version" --> C[直接输出，零导入]
+    B -- "remote-control" --> D[bridge/bridgeMain.js]
+    B -- "daemon" --> E[daemon/main.js]
+    B -- "ps/logs/attach/kill" --> F[cli/bg.js]
+    B -- "environment-runner" --> G[environment-runner/main.js]
+    B -- "self-hosted-runner" --> H[self-hosted-runner/main.js]
+    B --" --daemon-worker" --> I[daemon/workerRegistry.js]
+    B -- "所有其他路径" --> J[main.tsx]
     J --> K[entrypoints/init.ts\nenableConfigs\napplySafeConfigEnvVars\nconfigureGlobalMTLS\nconfigureGlobalAgents\npreconnectAnthropicApi\nsetupGracefulShutdown]
-    K -- 信任对话框后 --> L[initializeTelemetryAfterTrust\nwaitForRemoteSettings\napplyConfigEnvVars\ninitializeTelemetry]
+    K -- "信任对话框后" --> L[initializeTelemetryAfterTrust\nwaitForRemoteSettings\napplyConfigEnvVars\ninitializeTelemetry]
 
-    M[claude mcp serve 路径] --> N[entrypoints/mcp.ts\nstartMCPServer\nServer MCP SDK\nListToolsRequestSchema\nCallToolRequestSchema\ngetTools → 全部内置工具]
+    M[claude mcp serve 路径] --> N[entrypoints/mcp.ts\nstartMCPServer\nServer MCP SDK\nListToolsRequestSchema\nCallToolRequestSchema\ngetTools ➜ 全部内置工具]
 ```
 
 ### 2.3 关键数据流
@@ -64,17 +64,17 @@ flowchart TD
 ```mermaid
 flowchart TD
     A[process.argv] --> B{args 0}
-    B -- --version / -v / -V --> C[console.log MACRO.VERSION\nreturn]
-    B -- --dump-system-prompt\nant-only --> D[getSystemPrompt\nconsole.log\nreturn]
-    B -- --daemon-worker --> E[runDaemonWorker args 1\nreturn]
-    B -- remote-control/rc/remote\nsync/bridge --> F[bridgeMain args.slice 1\nreturn]
-    B -- daemon --> G[daemonMain args.slice 1\nreturn]
-    B -- ps/logs/attach/kill\nor --bg/--background --> H[bg handler\nreturn]
-    B -- new/list/reply\nTEMPLATES --> I[templatesMain args\nprocess.exit 0]
-    B -- environment-runner --> J[environmentRunnerMain\nreturn]
-    B -- self-hosted-runner --> K[selfHostedRunnerMain\nreturn]
-    B -- --tmux + --worktree --> L[execIntoTmuxWorktree]
-    B -- 默认路径 --> M[startCapturingEarlyInput\nimport main.js → m.main]
+    B --" --version / -v / -V" --> C[console.log MACRO.VERSION\nreturn]
+    B --" --dump-system-prompt\nant-only" --> D[getSystemPrompt\nconsole.log\nreturn]
+    B --" --daemon-worker" --> E[runDaemonWorker args 1\nreturn]
+    B -- "remote-control/rc/remote\nsync/bridge" --> F[bridgeMain args.slice 1\nreturn]
+    B -- "daemon" --> G[daemonMain args.slice 1\nreturn]
+    B -- "ps/logs/attach/kill\nor --bg/--background" --> H[bg handler\nreturn]
+    B -- "new/list/reply\nTEMPLATES" --> I[templatesMain args\nprocess.exit 0]
+    B -- "environment-runner" --> J[environmentRunnerMain\nreturn]
+    B -- "self-hosted-runner" --> K[selfHostedRunnerMain\nreturn]
+    B --" --tmux + --worktree" --> L[execIntoTmuxWorktree]
+    B -- "默认路径" --> M[startCapturingEarlyInput\nimport main.js ➜ m.main]
 ```
 
 **`init()` 内部执行时序**
@@ -89,8 +89,8 @@ flowchart LR
     F --> G[initializeRemoteManagedSettingsLoadingPromise\nrecordFirstStartTime]
     G --> H[configureGlobalMTLS\nconfigureGlobalAgents\npreconnectAnthropicApi]
     H --> I{REMOTE?}
-    I -- 是 --> J[initUpstreamProxy]
-    I -- 否 --> K[setShellIfWindows\nensureScratchpadDir]
+    I -- "是" --> J[initUpstreamProxy]
+    I -- "否" --> K[setShellIfWindows\nensureScratchpadDir]
     J --> K
 ```
 

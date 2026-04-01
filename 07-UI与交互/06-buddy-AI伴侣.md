@@ -78,7 +78,7 @@ flowchart TD
 
     L --> O[rollCache 缓存\n避免热路径重复计算]
     O --> P[CompanionSprite 渲染\n每 500ms 切换 IDLE_SEQUENCE 帧]
-    P --> Q["{E} 占位符 → 眼睛字符\n-1 帧 → 眨眼覆盖"}]
+    P --> Q["{E} 占位符 ➜ 眼睛字符\n-1 帧 ➜ 眨眼覆盖"]
 ```
 
 ```

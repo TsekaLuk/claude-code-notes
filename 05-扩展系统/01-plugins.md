@@ -51,7 +51,7 @@ graph TD
     A[CLI 启动] --> B[initBuiltinPlugins\nsrc/plugins/bundled/index.ts\n目前为空，脚手架]
     B --> C[BUILTIN_PLUGINS: Map\nsrc/plugins/builtinPlugins.ts]
     C --> D[getBuiltinPlugins\n读取 getSettings_DEPRECATED 用户偏好\n检查 isAvailable 可用性过滤\n返回 enabled / disabled]
-    C --> E[getBuiltinPluginSkillCommands\nskillDefinitionToCommand 技能转命令\n注入 Command[] → commands.ts / Skill 工具]
+    C --> E[getBuiltinPluginSkillCommands\nskillDefinitionToCommand 技能转命令\n注入 CommandList ➜ commands.ts / Skill 工具]
 
     subgraph types/plugin.ts
         F[BuiltinPluginDefinition]

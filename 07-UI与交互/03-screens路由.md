@@ -43,7 +43,7 @@ graph TD
 
 ```mermaid
 flowchart TD
-    A[用户运行 claude --resume] --> B[ResumeConversation\n渲染会话列表\nloadAllProjectsMessageLogsProgressive]
+    A[用户运行 claude --resume] --> B[ResumeConversation<br/>渲染会话列表<br/>loadAllProjectsMessageLogsProgressive]
     B --> C[用户选择会话]
     C --> D[onDone sessionId, restoredMessages, ...\n启动入口卸载 ResumeConversation\n挂载 REPL，传入 restoredMessages 和 sessionId]
     D --> E[REPL 初始化\n反序列化消息、恢复会话元数据、恢复工作树]
@@ -121,14 +121,14 @@ Claude Code 没有集中的 Screen 注册表（Registry），而是通过 `src/i
 ```mermaid
 flowchart TD
     A[claude 命令启动\nsrc/index.ts] --> B{命令参数解析\nyargs / meow}
-    B -- doctor | --doctor --> C[渲染 Doctor Screen\nink.render &lt;Doctor onDone=exit /&gt;]
-    B -- --resume [sessionId] --> D[渲染 ResumeConversation Screen\n或若已有 sessionId 直接恢复]
-    B -- --print / -p --> E[非交互模式\nqueryEngine.query 直接输出]
-    B -- --json --> F[JSON 输出模式\n无 Ink 渲染]
-    B -- 默认 --> G[渲染 REPL Screen\nInk 主入口]
-    D -- 用户选择会话\nonDone被调用 --> G
-    C -- 诊断完成\nonDone被调用 --> H[process.exit]
-    G -- 用户 /exit\nonDone被调用 --> H
+    B -- "doctor | --doctor" --> C[渲染 Doctor Screen\nink.render ‹Doctor onDone=exit /›]
+    B --" --resume [sessionId]" --> D[渲染 ResumeConversation Screen\n或若已有 sessionId 直接恢复]
+    B --" --print / -p" --> E[非交互模式\nqueryEngine.query 直接输出]
+    B --" --json" --> F[JSON 输出模式\n无 Ink 渲染]
+    B -- "默认" --> G[渲染 REPL Screen\nInk 主入口]
+    D -- "用户选择会话\nonDone被调用" --> G
+    C -- "诊断完成\nonDone被调用" --> H[process.exit]
+    G -- "用户 /exit\nonDone被调用" --> H
 ```
 
 **Screen 间的过渡机制**

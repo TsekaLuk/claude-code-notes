@@ -34,13 +34,13 @@ graph TD
     A[QueryEngine / 上层调用] --> B[services/api/claude.ts\n请求构建、SSE 流解析]
     B --> C[withRetry.ts\n重试循环、快速模式降级]
     C --> D[sleep.ts / fastMode.ts]
-    B --> E[client.ts\n客户端工厂]
-    E --> E1[Anthropic SDK 直连]
-    E --> E2[@anthropic-ai/bedrock-sdk AWS]
-    E --> E3[@anthropic-ai/vertex-sdk GCP]
-    E --> E4[@anthropic-ai/foundry-sdk Azure]
-    F[utils/auth.ts\nOAuth token 刷新] --> E
-    G[utils/proxy.ts\n代理配置] --> E
+    B --> E_node[client.ts\n客户端工厂]
+    E_node --> E1["Anthropic SDK 直连"]
+    E_node --> E2["@anthropic-ai/bedrock-sdk AWS"]
+    E_node --> E3["@anthropic-ai/vertex-sdk GCP"]
+    E_node --> E4["@anthropic-ai/foundry-sdk Azure"]
+    F["utils/auth.ts<br/>OAuth token 刷新"] --> E_node
+    G["utils/proxy.ts<br/>代理配置"] --> E_node
 ```
 
 ### 2.3 关键数据流
@@ -50,14 +50,14 @@ flowchart TD
     A[用户请求] --> B[getAnthropicClient\n检查环境变量选择提供器\n刷新 OAuth / AWS / GCP 凭证]
     B --> C[withRetry getClient, operation, options\nattempt 循环，最多 maxRetries+1 次]
     C --> D{错误类型}
-    D -- 429/529 --> E[sleep + yield SystemAPIErrorMessage]
-    D -- 401 --> F[刷新 token → 重建 client]
-    D -- 上下文溢出 --> G[调整 max_tokens → continue]
+    D -- "429/529" --> E[sleep + yield SystemAPIErrorMessage]
+    D -- "401" --> F[刷新 token ➜ 重建 client]
+    D -- "上下文溢出" --> G[调整 max_tokens ➜ continue]
     E --> C
     F --> C
     G --> C
     C --> H[operation client, attempt, retryContext\nclaude.ts 发起 stream.create]
-    H --> I[SSE 事件流 → normalizeContentFromAPI\n→ AsyncGenerator StreamEvent]
+    H --> I[SSE 事件流 ➜ normalizeContentFromAPI\n➜ AsyncGenerator StreamEvent]
 ```
 
 ## 三、核心实现走读
@@ -153,10 +153,10 @@ flowchart TD
     A[Anthropic SDK\nstream.create] --> B[SSE 原始事件\nmessage_start\ncontent_block_start\ncontent_block_delta\ncontent_block_stop\nmessage_delta\nmessage_stop]
     B --> C[normalizeContentFromAPI\n事件类型归一化]
     C --> D{事件类型}
-    D -- text_delta --> E[TextStreamEvent\n{type: text, value: '...'}]
-    D -- tool_use_delta --> F[ToolUseStreamEvent\n{type: tool_use, id, input: partial}]
-    D -- message_stop --> G[DoneStreamEvent\n{type: done, stop_reason}]
-    E --> H[QueryLoop\n消费 AsyncGenerator&lt;StreamEvent&gt;]
+    D -- "text_delta" --> E["TextStreamEvent<br/>{type: text, value: '...'}"]
+    D -- "tool_use_delta" --> F["ToolUseStreamEvent<br/>{type: tool_use, id, input: partial}"]
+    D -- "message_stop" --> G["DoneStreamEvent<br/>{type: done, stop_reason}"]
+    E --> H["QueryLoop<br/>消费 AsyncGenerator ‹StreamEvent›"]
     F --> H
     G --> H
 ```
