@@ -86,6 +86,24 @@ mcpClient.ts 解析响应 → 返回字符串结果
 renderToolResultMessage() → UI 展示
 ```
 
+```mermaid
+sequenceDiagram
+    participant 模型 as 模型（主循环）
+    participant TST as ToolSearchTool
+    participant MCP客户端 as mcpClient.ts
+    participant MCP服务器 as MCP Server（外部）
+
+    模型->>TST: 搜索 mcp__github__create_issue
+    TST-->>模型: 返回 tool_reference（激活工具定义）
+    模型->>MCP客户端: 调用 mcp__github__create_issue(参数)
+    MCP客户端->>MCP客户端: checkPermissions → passthrough\n检查 allowlist/denylist
+    MCP客户端->>MCP服务器: JSON-RPC callTool 请求\n（stdio / HTTP）
+    MCP服务器-->>MCP客户端: JSON-RPC 响应（工具结果）
+    MCP客户端->>MCP客户端: formatMcpResult 解析响应
+    MCP客户端-->>模型: 返回字符串结果
+    模型->>模型: renderToolResultMessage UI 展示
+```
+
 ## 三、核心实现走读
 
 ### 3.1 关键流程
