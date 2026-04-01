@@ -10,8 +10,12 @@
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC_BY--NC_4.0-lightgrey.svg?style=flat-square)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Status: Complete](https://img.shields.io/badge/Status-Complete-green.svg?style=flat-square)](#)
 
-*面向工程面试复习与高级全栈源码学习的“硬核”分析笔记*<br>
+*面向工程面试复习与高级全栈源码学习的”硬核”分析笔记*<br>
 *(基于 Claude Code v2.1.88 npm 发布包 source map 还原版本)*
+
+<br/>
+
+![Cover](./assets/cover.png)
 
 </div>
 
