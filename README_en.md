@@ -1,78 +1,131 @@
 <div align="center">
 
-# 🧑‍💻 Claude Code Source Code Deep Dive Notes
+# Claude Code v2.1.88 — Deep Source Analysis
 
-[**🌐 English Version**](./README_en.md) | [**🇨🇳 中文版本**](./README.md)
+[**🌐 English**](./README_en.md) | [**🇨🇳 中文**](./README.md)
 
 [![Version](https://img.shields.io/badge/Claude_Code-v2.1.88-blue.svg?style=flat-square)](https://www.anthropic.com/claude-code)
-[![Documentation](https://img.shields.io/badge/Docs-50_Articles-success.svg?style=flat-square)](#-table-of-contents)
+[![Documentation](https://img.shields.io/badge/Docs-50_Articles-success.svg?style=flat-square)](#-repository-structure-50-articles)
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC_BY--NC_4.0-lightgrey.svg?style=flat-square)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Status: Complete](https://img.shields.io/badge/Status-Complete-green.svg?style=flat-square)](#)
 
-*A "hardcore" analytical reading note aimed at engineering interview reviews and advanced full-stack source code learning*<br>
-*(Based on the Claude Code v2.1.88 npm published package source map restored version)*
+*A comprehensive engineering reference for Claude Code's internals — architecture, design patterns, and interview prep*
 
 </div>
 
 <br/>
 
-## 📖 Project Introduction
+## What Is This?
 
-This project is an open-source set of notes systematically interpreting the internal engine and architecture of **Anthropic Claude Code (v2.1.88)**. By dividing it into 8 core modules, a total of 50 high-quality technical analysis documents have been produced. It aims to help deeply understand the implementation, interaction architecture, and security design of current top-tier cutting-edge AI Agent frameworks.
+This repository is a systematic, source-level analysis of **Anthropic's Claude Code (v2.1.88)** — the production AI agent CLI that ships as an npm package. Using source map recovery techniques on the published bundle, we reverse-engineered the internal architecture into 50 structured articles spanning 8 core modules.
 
-Document Features:
-- 🔍 **Source Code-Level Analysis**: Delves into the implementation details of every critical line of code.
-- 🏗️ **Architecture Visualization**: A large number of high-quality Mermaid architecture diagrams and data flow diagrams.
-- 💡 **Interview & Thinking Q&A**: Each article comes with high-frequency Q&As such as "Design Decisions", "Trade-offs and Optimizations", combining theory with practical thinking.
-- 🇨🇳 **Full Chinese Context**: Lowers the reading threshold for in-depth technology.
+Each article follows a consistent three-part format: a narrative walkthrough of the source code, a set of design-decision Q&As (the kind that come up in senior engineering interviews), and Mermaid diagrams that visualize data flows, state machines, and module dependencies. The goal is not just to describe what the code does, but to explain *why* each architectural choice was made and what trade-offs it involves.
+
+This is a reference for engineers who want to understand how a production-grade AI agent CLI actually works under the hood — not from a marketing description, but from the source code itself.
 
 ---
 
-## 🗺️ Core Guide
+## Why This Matters
 
-If this is your first time visiting this project, it is highly recommended to start with the overview:
-👉 **[00-Global Architecture Overview](./00-全局架构总览.md)** —— Contains the 7 core architecture designs, macro data flow, and module dependency topology graph.
+Claude Code is one of the few production AI agent systems whose internals can be studied in depth. What makes it architecturally interesting is not that it calls an LLM API, but *how* the system is structured around the inherent constraints of that interaction: token limits, streaming latency, tool execution side effects, multi-turn context management, and the need to render a responsive UI while all of this is happening concurrently.
 
-## 📚 Table of Contents (50 Articles Full Coverage)
+A few highlights that distinguish Claude Code's architecture from naive LLM wrapper implementations:
 
-This project is divided into 8 major areas based on the physical module division of the source code. You can directly click on the corresponding subdirectories to view in-depth analysis reports:
+- The **QueryLoop** is a stateless, dependency-injectable execution kernel that drives multi-turn agentic behavior. Stateful session management is cleanly separated into `QueryEngine`, making the core loop independently testable.
+- The **4-tier context compression pipeline** (snip → microcompact → contextCollapse → autocompact) handles the hard problem of keeping long conversations within the model's context window without destroying semantic continuity — and does so progressively, only escalating to expensive full-history summarization when cheaper strategies are insufficient.
+- The **terminal UI** is built on React 19 with a custom reconciler and Yoga WASM for flexbox layout, treating the terminal as a first-class rendering target with diffed, double-buffered output. This is not a standard Ink usage — it is a custom reconciliation layer.
+- The **tool system** uses a `buildTool()` factory with lazy Zod schema initialization, meaning 40+ built-in tools impose near-zero startup cost on a cold CLI invocation.
+- The **authentication chain** handles 7 credential sources (direct API key, Claude.ai OAuth, AWS Bedrock IAM, GCP Vertex ADC, Azure Foundry AAD, enterprise SSO, desktop app injection) through a single responsibility-chain entry point.
 
-- 🚀 **[01-Core Entry](./01-核心入口/)**: Explores the CLI bootstrap program, parallel debounce startup mechanism, and dual-path routing engine (MDM/Keychain).
-- 🛠️ **[02-Tool System](./02-工具系统/)**: Uncovers MCP dynamic loading, BashTool sandbox defense mechanisms, and the ToolDef factory pattern system.
-- ⚡️ **[03-Command System](./03-命令系统/)**: Interprets the three-way priority instruction chain, fault injection strategy (`bridge-kick`), and cache zero-trace (`btw`) processing.
-- 🧠 **[04-Agent Coordination](./04-Agent协调/)**: Core analysis! The QueryLoop lifecycle, powerful **four-level context compression pipeline**, and atomic notification mechanism.
-- 🔌 **[05-Extension System](./05-扩展系统/)**: Masters external world linkage capabilities: plugin joint dispatch mechanism, state machine skill design, and chord key inputs.
-- 🧱 **[06-Services & Infrastructure](./06-服务与基础/)**: Global perspective: 7-level certificate priority security verification, Zod anti-backward circular references, and immutable Store layer.
-- 🎨 **[07-UI & Interaction](./07-UI与交互/)**: React 19 custom reconciliation frontend, Yoga WASM high-performance Flex layout, and deterministic Buddy companion algorithm.
-- 🌐 **[08-Network & Remote](./08-网络与远程/)**: Analyzes KAIROS daemon observation mechanism, BoundedUUIDSet deduplication, Protobuf customized packetization, and upstream proxy tunnels.
+If you are preparing for a senior engineering interview, building your own AI agent framework, or simply want to understand what "production AI tooling" looks like at the implementation level, this is the reference you are looking for.
 
 ---
 
-## 🤝 Contributing
+## Repository Structure (50 Articles)
 
-This project has completed the static deconstruction of v2.1.88, but with the rapid updates of Claude Code, we strongly welcome the power of the community to jointly maintain and evolve this project!
+The repository mirrors the physical module layout of the Claude Code source. Start with the global overview, then navigate by area of interest.
 
-**You can help grow the repository in the following ways:**
-
-1. **🌟 Submit Issues / Errata**: Encountered unclear expressions, code updates, or document formatting errors? Please feel free to open an Issue!
-2. **🔄 Version Update Tracking**: If you have captured the source map differences of an updated version, you are welcome to submit a PR to supplement the analysis of new features (e.g., new MCP protocol support).
-3. **🎨 Submit Agent Practice Designs**: Submit your own Agent practice design with a Demo image to be included in the notes.
-
-*Before submitting a PR, please make sure to maintain the original `"Narrative + QA + Mermaid"` three-part layout specification.*
+**[00 — Global Architecture Overview](./00-全局架构总览.md)**
+The recommended entry point. Covers the 7 core architectural decisions, the full user-interaction lifecycle (10 stages from keypress to rendered output), and a module dependency topology. Read this first.
 
 ---
 
-## 📝 TODO List
+**[01 — Core Entry](./01-核心入口/) · 4 articles**
+The CLI bootstrap sequence: how `cli.tsx` hands off to `main.tsx`, parallel prefetch debouncing that hides startup latency, Commander-based argument parsing, and the dual-path routing engine that separates MDM-managed and Keychain-based authentication flows at process start.
 
-- [ ] Write a comprehensive guide on "Building Your Own Lightweight Agent Client Using the Architecture Summarized in This Document".
+**[02 — Tool System](./02-工具系统/) · 9 articles**
+The 40+ built-in tool registry: the `ToolDef<I,O>` interface contract, the `buildTool()` factory pattern, lazy Zod schema initialization, MCP dynamic loading, `BashTool` sandbox defense mechanisms, the 4-stage tool execution lifecycle (`validateInput → checkPermissions → call → mapResult`), and the `StreamingToolExecutor` that runs tools in parallel.
+
+**[03 — Command System](./03-命令系统/) · 9 articles**
+The slash-command infrastructure: the three-way priority instruction chain, memoized command registration, feature flag gating, the fault injection strategy (`bridge-kick`), and the cache zero-trace (`btw`) processing mode. Covers all three command categories: Prompt, Local, and JSX.
+
+**[04 — Agent Coordination](./04-Agent协调/) · 4 articles**
+The core of the system. The `query.ts` QueryLoop lifecycle — how the `while(true)` loop drives multi-turn agentic execution. The 4-tier context compression pipeline in detail. The `QueryEngine` stateful session manager. The multi-agent coordinator and environment-variable-based mode switching.
+
+**[05 — Extension System](./05-扩展系统/) · 3 articles**
+How Claude Code is extended at runtime: the plugin joint-dispatch mechanism, state machine skill design, dynamic skill directory scanning, and chord key input bindings.
+
+**[06 — Services & Infrastructure](./06-服务与基础/) · 8 articles**
+The foundational layer: the Anthropic API client with retry and streaming, the 7-level authentication priority chain, Zod schema definitions for all core types (`Message`, `ToolResult`, etc.), the immutable global `AppState` store, token counting and cost calculation utilities, and the migration infrastructure.
+
+**[07 — UI & Interaction](./07-UI与交互/) · 7 articles**
+The React 19 + Ink terminal rendering engine: the custom `react-reconciler` that maps virtual DOM to `DOMElement` trees, Yoga WASM flexbox layout computation, double-buffered diff rendering to stdout, core UI components (`PermissionRequest`, `Spinner`, `Messages`), and the deterministic Buddy companion system with its bones/soul storage separation.
+
+**[08 — Network & Remote](./08-网络与远程/) · 6 articles**
+The remote execution layer: the CCR WebSocket session manager, the KAIROS SSE remote agent daemon, `BoundedUUIDSet` for deduplication, Protobuf custom packetization, upstream proxy tunnels, and the local bridge server.
 
 ---
 
-<div align="center">
+## Key Architectural Insights
 
-> **Copyright Notice**: The source code copyright belongs to [Anthropic](https://www.anthropic.com). This document is compiled based on reverse engineering/static analysis and learning research, and does not involve direct misappropriation of source code for packaging.<br>
-> The document content itself uses the [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) license, and cannot be used for any form of commercial paid course resale without written permission.
+These are the findings that stood out most during the analysis — decisions that are non-obvious but make sense once you understand the constraints they solve.
 
-*Built with ❤️ for the AI Engineering Community.*
+- **The terminal UI runs React 19 with a custom reconciler and Yoga WASM.** Rather than writing imperative ANSI escape sequences, the entire terminal UI is modeled as `UI = f(state)`. A custom `react-reconciler` maps the React virtual DOM to Ink's `DOMElement` tree, Yoga computes flexbox layout in WASM, and a double-buffered diff renderer outputs only changed lines to stdout. This eliminates flicker during streaming and makes UI components independently testable.
 
-</div>
+- **Context compression is a 4-tier progressive pipeline, not a single truncation.** Before each API call, the message history passes through: (1) `snip` — truncate oversized individual tool results; (2) `microcompact` — compress redundant sections of the most recent large tool result; (3) `contextCollapse` — fold completed tool-call sequences into inline summaries; (4) `autocompact` — invoke Claude itself to summarize the full history when utilization exceeds a threshold. Each tier is more expensive than the last, so the system only escalates when necessary. This keeps costs low while preventing `prompt_too_long` errors on long sessions.
+
+- **All 40+ tool schemas are lazily initialized via a `lazySchema()` wrapper.** TypeScript getter functions ensure Zod schema objects are only constructed on first access. Combined with the `buildTool()` factory, this means the full tool registry registers at near-zero startup cost — critical for a CLI where cold-start latency is user-visible.
+
+- **The QueryLoop is stateless; session state lives in a separate `QueryEngine` object.** `query()` is a pure execution kernel that takes all context as parameters and supports dependency injection (`callModel`, `autocompact`, etc. are replaceable for testing). `QueryEngine` is the stateful session manager that holds `mutableMessages` and `totalUsage` across `submitMessage()` calls. This separation means the core loop is unit-testable in isolation while the session layer can fulfill the SDK contract for external consumers like Claude Desktop.
+
+- **The Buddy companion's appearance is never stored — it is re-derived deterministically.** The companion's visual characteristics (`CompanionBones`) are computed from `hash(userId + SALT)` via the Mulberry32 PRNG on every load, so they are tamper-proof by design: there is no stored value to edit. The AI-generated personality (`CompanionSoul`) is stored once. One species name is constructed at runtime via `String.fromCharCode()` to avoid triggering build-artifact canary scanners that flag certain string literals — a detail that reveals how seriously the team takes supply-chain security.
+
+---
+
+## Getting Started
+
+**If you are new here**, start with [00-全局架构总览.md](./00-全局架构总览.md). It covers the full architecture in one document and will orient you before diving into any module group.
+
+**For interview preparation**, the recommended priority order is:
+
+1. `04-Agent协调/04-QueryEngine.md` — session management, write-ahead logging, double-buffered messages
+2. `04-Agent协调/03-query.md` — query loop, 4-tier compression, tool execution
+3. `02-工具系统/00-工具系统总览.md` — ToolDef interface, buildTool factory, permission lifecycle
+4. `07-UI与交互/01-ink渲染引擎.md` — React reconciler, Yoga layout, diff rendering
+5. `06-服务与基础/04-utils-model-auth.md` — 7-level auth chain, OAuth refresh, multi-cloud
+
+**For a systematic deep-dive**, start from the infrastructure layer (`06`), work up through the tool layer (`02`), then the query layer (`04`), then commands and extensions (`03`, `05`), and finish with the entry point and UI (`01`, `07`, `08`).
+
+---
+
+## Contributing
+
+This project completed its static analysis of v2.1.88, but Claude Code is actively updated. Community contributions to keep the analysis current are very welcome.
+
+**Ways to contribute:**
+
+1. **Submit Issues / Errata** — If you find unclear explanations, outdated descriptions after a Claude Code update, or formatting errors, open an Issue.
+2. **Version Update Tracking** — If you have recovered source maps from a newer version, submit a PR with analysis of new or changed features (e.g., updated MCP protocol support, new tool implementations).
+3. **Code Validation Examples** — Submit concrete code snippets or runtime screenshots that validate or illustrate specific architectural claims in the articles.
+
+Before submitting a PR, please follow the existing `"Narrative + Q&A + Mermaid"` three-part article structure.
+
+---
+
+## License
+
+> **Copyright notice**: Source code copyright belongs to [Anthropic](https://www.anthropic.com). This documentation is compiled from reverse engineering / static analysis for learning and research purposes only, and does not redistribute original source code.
+>
+> The documentation content is licensed under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/). Commercial use (including paid courses or training materials) requires written permission.
+
+*Built for the AI engineering community.*
