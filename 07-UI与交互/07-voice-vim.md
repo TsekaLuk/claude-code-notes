@@ -54,6 +54,60 @@ PromptInput → useVimInput → useTextInput（字符串操作）
 
 ### 2.3 关键数据流
 
+```mermaid
+stateDiagram-v2
+    [*] --> 空闲: 初始化
+
+    空闲 --> 预热中: 按键次数 ≥ WARMUP_THRESHOLD(2)
+    预热中 --> 录音中: 按键次数 ≥ HOLD_THRESHOLD(5)\n裸字符键 ~350ms
+    预热中 --> 录音中: 修饰键组合\nHOLD_THRESHOLD=1 立即激活
+    空闲 --> 录音中: 修饰键首次按下
+
+    录音中 --> 处理中: 松开键\n超时 RELEASE_TIMEOUT_MS=200ms
+    录音中 --> 处理中: FIRST_PRESS_FALLBACK_MS=2000ms\n修饰键无自动重复兜底
+
+    处理中 --> 空闲: onTranscript(text)\n写入 PromptInput
+    处理中 --> 空闲: 转录失败 / 超时
+
+    note right of 录音中
+        PCM 数据流式发送
+        computeLevel → 波形可视化
+        Deepgram STT 实时推测
+    end note
+
+    note right of 处理中
+        等待 is_final=true
+        normalizeLanguageForSTT()
+        多级语言回退
+    end note
+```
+
+```mermaid
+flowchart TD
+    A[用户按键 NORMAL 模式] --> B[useVimInput.handleVimInput]
+    B --> C{vimState.type}
+
+    C -->|idle| D[fromIdle]
+    C -->|count| E[fromCount]
+    C -->|operator| F[fromOperator]
+    C -->|operatorCount| G[fromOperatorCount]
+    C -->|find/replace| H[fromFind / fromReplace]
+
+    D -->|1-9| I[→ count 状态\n等待操作符]
+    D -->|d/c/y| J[→ operator 状态\n等待动作]
+    D -->|h/j/k/l/w/b/e| K[立即执行\nsetOffset 移动光标]
+    D -->|i/a| L[切换 INSERT 模式\n重置 insertedText]
+
+    E -->|操作符键| J
+    F -->|数字| M[→ operatorCount 状态]
+    F -->|动作键| N[executeOperatorMotion\ncount × motion]
+    G -->|动作键| N
+
+    N --> O[execute → ctx.deleteRange\n/ insertText / setOffset]
+    O --> P[vimStateRef.current = idle]
+    P --> Q[记录 lastChange\n供 dot-repeat 使用]
+```
+
 **语音输入数据流：**
 ```
 用户按住 Space（或自定义键）

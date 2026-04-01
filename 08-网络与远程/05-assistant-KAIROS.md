@@ -71,6 +71,32 @@ src/remote/RemoteSessionManager.ts (viewerOnly 行为修改)
 
 ### 2.3 关键数据流
 
+```mermaid
+sequenceDiagram
+    participant U as 用户 / claude.ai
+    participant D as 守护端<br/>claude --assistant
+    participant CCR as CCR 平台
+    participant O as 观察端<br/>claude assistant [sessionId]
+
+    U->>D: 启动守护进程
+    D->>CCR: 注册 worker_type=claude_code_assistant
+    D->>CCR: initReplBridge() 建立 bridge 连接
+    CCR-->>D: 推送工作任务（WebSocket）
+    D->>D: 执行任务（工具调用循环）
+
+    O->>CCR: discoverAssistantSessions()
+    CCR-->>O: 返回 sessionId 列表
+    O->>CCR: createRemoteSessionConfig(viewerOnly=true)
+    CCR-->>O: WebSocket 事件流
+    Note over O: 接收消息流<br/>不发送 interrupt<br/>不更新标题<br/>无 60s 超时
+
+    U->>O: 滚动到顶部（懒加载历史）
+    O->>CCR: fetchLatestEvents(anchor_to_latest=true)
+    CCR-->>O: 最新 100 条消息
+    O->>CCR: fetchOlderEvents(before_id=cursor)
+    CCR-->>O: 更早的历史消息
+```
+
 **守护端启动：**
 ```
 claude --assistant

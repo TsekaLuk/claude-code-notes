@@ -57,6 +57,30 @@
 
 ### 2.3 关键数据流
 
+```mermaid
+flowchart TD
+    A[userId] --> B["hash(userId + SALT='friend-2026-401')"]
+    B --> C[mulberry32 PRNG 种子]
+    C --> D[rollRarity\ncommon 60% / uncommon 25%\nrare 10% / epic 4% / legendary 1%]
+    D --> E[rollSpecies\n按稀有度对应物种池]
+    E --> F[rollEyes\n随机眼睛类型]
+    F --> G{稀有度 > common?}
+    G -->|是| H[rollHat\n随机帽子]
+    G -->|否| I[无帽子]
+    H --> J[rollShiny\n1% 概率]
+    I --> J
+    J --> K[roll5Stats\nDEBUGGING/PATIENCE\nCHAOS/WISDOM/SNARK]
+    K --> L[CompanionBones\n确定性外观 永不持久化]
+
+    subgraph 绕过 canary 扫描
+        M["String.fromCharCode(...)"] -->|运行时构造| N["物种名\n避免字面量触发\nexcluded-strings.txt 扫描"]
+    end
+
+    L --> O[rollCache 缓存\n避免热路径重复计算]
+    O --> P[CompanionSprite 渲染\n每 500ms 切换 IDLE_SEQUENCE 帧]
+    P --> Q["{E} 占位符 → 眼睛字符\n-1 帧 → 眨眼覆盖"}]
+```
+
 ```
 用户首次运行 /buddy hatch
     │

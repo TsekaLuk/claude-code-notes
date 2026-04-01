@@ -65,6 +65,27 @@
 └──────────┘   └──────────────────────────────┘
 ```
 
+```mermaid
+flowchart TD
+    subgraph MVA最小可行架构
+        A[用户 CLI 入口\nprocess.argv / readline] -->|用户 prompt| B[SessionManager\nmutableMessages / totalTokens]
+        B -->|submit 触发| C[QueryLoop\nwhile true 驱动]
+        C -->|流式请求| D[API 层\nAnthropic Client\n流式 SSE]
+        C -->|并行执行| E[工具池\nReadFile / WriteFile\nBash / Glob]
+        D -->|tool_use 块| C
+        E -->|tool_result 回注| C
+        C -->|end_turn| B
+    end
+
+    subgraph 上下文管理
+        C --> F{token 超 70%?}
+        F -->|是| G[autocompact\n摘要压缩]
+        F -->|单条超长| H[snip\n截断工具结果]
+        G --> C
+        H --> C
+    end
+```
+
 **必须保留的三个核心机制：**
 1. **QueryLoop 的 while(true) 驱动结构**：Agent 能力来源于工具调用→反馈→再请求的循环，缺少此循环则退化为普通 LLM 调用。
 2. **消息历史的跨轮次持久化**：模型需要上下文才能理解前置操作的结果。
@@ -107,6 +128,36 @@ async function* queryLoop(
     messages.push({ role: 'user', content: results.map(toToolResult) })
   }
 }
+```
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant S as SessionManager
+    participant Q as QueryLoop
+    participant API as Anthropic API
+    participant T as 工具池
+
+    U->>S: 输入自然语言指令
+    S->>Q: queryLoop(messages, tools, client)
+
+    loop while true
+        Q->>Q: snipIfNeeded(messages)\n单条超长结果截断
+        Q->>API: callModel(messages, tools)\n流式 SSE 请求
+        API-->>Q: 流式文本 delta
+        Q-->>U: process.stdout.write 实时打印
+        API-->>Q: tool_use 块 + stop_reason
+
+        alt stop_reason=end_turn 或无工具调用
+            Q->>S: break 退出循环
+        else 有 tool_use 块
+            Q->>T: Promise.all 并行执行工具
+            T-->>Q: tool_result 字符串
+            Q->>Q: messages.push assistant + user\n含 tool_use_id 对应关系
+        end
+    end
+
+    S-->>U: 本轮完成，等待下一条输入
 ```
 
 **关键细节**：Claude Code 原版的 `stop_reason === 'tool_use'` 触发工具执行，`'end_turn'` 触发退出。轻客户端无需精确区分，只要判断 `toolUses.length === 0` 即可退出循环。

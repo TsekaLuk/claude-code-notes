@@ -95,6 +95,39 @@ React 组件树（Ink UI）
 
 ### 2.3 关键数据流
 
+```mermaid
+flowchart TD
+    subgraph LLM请求前
+        A[LLM API 请求发起] --> B{memoize 缓存命中?}
+        B -->|命中| C[返回缓存上下文]
+        B -->|未命中| D[并发执行]
+    end
+
+    subgraph getSystemContext
+        D --> E[getGitStatus\ngit status/log/branch 并发]
+        D --> F[getSystemPromptInjection\n缓存破坏字符串\nant-only]
+        E --> G[合并 system 上下文]
+        F --> G
+    end
+
+    subgraph getUserContext
+        D --> H[getClaudeMds\n遍历 CLAUDE.md 文件链]
+        D --> I[getLocalISODate\n当前日期]
+        H --> J[合并 user 上下文]
+        I --> J
+    end
+
+    G --> K[插入 LLM system 字段]
+    J --> K
+    C --> K
+
+    subgraph native-ts运行时选择
+        L[模块调用] --> M{Rust NAPI .node 可用?}
+        M -->|是| N[color-diff: syntect\nfile-index: nucleo\nyoga-layout: C++]
+        M -->|否 降级| O[TypeScript 替代实现\nhighlight.js / 自实现评分 / Yoga TS]
+    end
+```
+
 **系统提示上下文构建：**
 ```
 LLM API 请求发起前
