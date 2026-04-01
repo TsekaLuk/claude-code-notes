@@ -5,7 +5,8 @@
 [**🌐 English**](./README_en.md) | [**🇨🇳 中文**](./README.md)
 
 [![Version](https://img.shields.io/badge/Claude_Code-v2.1.88-blue.svg?style=flat-square)](https://www.anthropic.com/claude-code)
-[![Documentation](https://img.shields.io/badge/Docs-55_Articles-success.svg?style=flat-square)](#-repository-structure-55-articles)
+[![Documentation](https://img.shields.io/badge/Docs-56_Articles-success.svg?style=flat-square)](#-repository-structure-56-articles)
+[![Interview QA](https://img.shields.io/badge/Interview_QA-484_questions-orange.svg?style=flat-square)](./INTERVIEW_QA.md)
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC_BY--NC_4.0-lightgrey.svg?style=flat-square)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Status: Complete](https://img.shields.io/badge/Status-Complete-green.svg?style=flat-square)](#)
 

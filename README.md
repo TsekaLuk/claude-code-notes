@@ -5,7 +5,8 @@
 [**🌐 English Version**](./README_en.md) | [**🇨🇳 中文版本**](./README.md)
 
 [![Version](https://img.shields.io/badge/Claude_Code-v2.1.88-blue.svg?style=flat-square)](https://www.anthropic.com/claude-code)
-[![Documentation](https://img.shields.io/badge/Docs-55_Articles-success.svg?style=flat-square)](#-目录大纲)
+[![Documentation](https://img.shields.io/badge/Docs-56_Articles-success.svg?style=flat-square)](#-目录大纲)
+[![Interview QA](https://img.shields.io/badge/面试题-484道-orange.svg?style=flat-square)](./INTERVIEW_QA.md)
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC_BY--NC_4.0-lightgrey.svg?style=flat-square)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Status: Complete](https://img.shields.io/badge/Status-Complete-green.svg?style=flat-square)](#)
 
@@ -18,7 +19,7 @@
 
 ## 📖 项目简介
 
-本项目是一套系统性解读 **Anthropic Claude Code (v2.1.88)** 内部引擎与架构的开源笔记。通过 8 个核心模块的切分，共产出 55 篇高质量的技术解析文档。旨在帮助深入理解当前顶尖前沿 AI Agent 框架的落地实现、交互架构与安全设计。
+本项目是一套系统性解读 **Anthropic Claude Code (v2.1.88)** 内部引擎与架构的开源笔记。通过 8 个核心模块的切分，共产出 56 篇高质量的技术解析文档。旨在帮助深入理解当前顶尖前沿 AI Agent 框架的落地实现、交互架构与安全设计。
 
 文档特点：
 - 🔍 **源码级剖析**：深入到每一行关键代码的实现细节。
@@ -33,7 +34,9 @@
 若您是第一次来到本项目，强烈建议从总览开始阅读：
 👉 **[00-全局架构总览](./00-全局架构总览.md)** —— 包含 7 大核心架构设计、宏观数据流以及模块依赖拓扑图。
 
-## 📚 目录大纲 (55 篇全覆盖)
+📋 **[面试题大全 484 题](./INTERVIEW_QA.md)** —— 全部文章 Q&A 汇总索引，按设计决策 / 原理分析 / 权衡优化 / 实战应用四类分组，一站式备考。
+
+## 📚 目录大纲 (56 篇全覆盖)
 
 本项目依据源码的物理模块划分为了 8 大专区。你可以直接点击对应子目录查看深入的分析报告：
 
