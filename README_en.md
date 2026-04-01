@@ -116,21 +116,6 @@ These are the findings that stood out most during the analysis — decisions tha
 
 **For a systematic deep-dive**, start from the infrastructure layer (`06`), work up through the tool layer (`02`), then the query layer (`04`), then commands and extensions (`03`, `05`), and finish with the entry point and UI (`01`, `07`, `08`).
 
----
-
-## Contributing
-
-This project completed its static analysis of v2.1.88, but Claude Code is actively updated. Community contributions to keep the analysis current are very welcome.
-
-**Ways to contribute:**
-
-1. **Submit Issues / Errata** — If you find unclear explanations, outdated descriptions after a Claude Code update, or formatting errors, open an Issue.
-2. **Version Update Tracking** — If you have recovered source maps from a newer version, submit a PR with analysis of new or changed features (e.g., updated MCP protocol support, new tool implementations).
-3. **Code Validation Examples** — Submit concrete code snippets or runtime screenshots that validate or illustrate specific architectural claims in the articles.
-
-Before submitting a PR, please follow the existing `"Narrative + Q&A + Mermaid"` three-part article structure.
-
----
 
 ## License
 
