@@ -112,7 +112,219 @@ function DistTagsDisplay({ promise }) {
 </Suspense>
 ```
 
-### 3.3 设计模式分析
+### 3.3 Screen 注册表与启动路由决策机制
+
+Claude Code 没有集中的 Screen 注册表（Registry），而是通过 `src/index.ts` 中的条件分支直接决定渲染哪个 Screen。理解这一路由决策树是理解整个 UI 架构的入口。
+
+**启动路由决策树：**
+
+```mermaid
+flowchart TD
+    A[claude 命令启动\nsrc/index.ts] --> B{命令参数解析\nyargs / meow}
+    B -- doctor | --doctor --> C[渲染 Doctor Screen\nink.render &lt;Doctor onDone=exit /&gt;]
+    B -- --resume [sessionId] --> D[渲染 ResumeConversation Screen\n或若已有 sessionId 直接恢复]
+    B -- --print / -p --> E[非交互模式\nqueryEngine.query 直接输出]
+    B -- --json --> F[JSON 输出模式\n无 Ink 渲染]
+    B -- 默认 --> G[渲染 REPL Screen\nInk 主入口]
+    D -- 用户选择会话\nonDone被调用 --> G
+    C -- 诊断完成\nonDone被调用 --> H[process.exit]
+    G -- 用户 /exit\nonDone被调用 --> H
+```
+
+**Screen 间的过渡机制**
+
+Screen 切换通过 `onDone` 回调 + Ink 的 `rerender()` 实现，而非 React Router 的声明式路由：
+
+```typescript
+// src/index.ts（简化）
+// 启动时决定初始 Screen
+let currentScreen: 'resume' | 'repl' | 'doctor' = computeInitialScreen(args)
+
+const { rerender, unmount } = render(
+  currentScreen === 'resume'
+    ? <ResumeConversation
+        onDone={(sessionData) => {
+          // 收到 onDone：切换到 REPL，传入恢复的会话数据
+          rerender(<REPL initialSessionData={sessionData} onDone={handleREPLDone} />)
+        }}
+      />
+    : <REPL onDone={handleREPLDone} />
+)
+```
+
+`rerender()` 是 Ink 提供的能力，它将 React 树的根节点替换为新组件，触发完整的卸载-挂载周期：旧 Screen 的所有 `useEffect` 清理函数被调用，新 Screen 完全初始化。这等价于 Web 路由的"页面导航"，但在同一个 Node.js 进程和终端会话中完成。
+
+### 3.4 REPL Screen 的内部状态机
+
+`REPL.tsx` 的复杂性来自它实际上是一个多层嵌套的状态机，管理着对话的所有可能状态：
+
+**顶层状态变量（核心）：**
+
+| 状态变量 | 类型 | 含义 |
+|---------|------|------|
+| `messages` | `Message[]` | 完整对话历史（含工具调用记录）|
+| `isLoading` | `boolean` | API 请求进行中 |
+| `permissionRequest` | `ToolUseConfirm \| null` | 当前待确认的工具权限请求 |
+| `forkData` | `ForkData \| null` | 会话分支元数据（`/branch` 创建后非空）|
+| `claudeEnvVars` | `Record<string, string>` | 注入 Claude 子进程的环境变量 |
+| `costThresholdExceeded` | `boolean` | 是否超出成本上限 |
+
+**REPL 渲染决策逻辑：**
+
+```typescript
+// REPL.tsx — 渲染优先级（从高到低，简化版）
+// src/screens/REPL.tsx:350-420
+return (
+  <Box flexDirection="column">
+    {/* 1. 消息历史（始终显示）*/}
+    <MessageList messages={messages} />
+
+    {/* 2. 权限确认（高优先级，覆盖输入）*/}
+    {permissionRequest && (
+      <PermissionRequest
+        confirm={permissionRequest}
+        onResponse={handlePermissionResponse}
+      />
+    )}
+
+    {/* 3. 成本超限对话框 */}
+    {costThresholdExceeded && (
+      <CostThresholdDialog onContinue={handleContinue} onExit={handleExit} />
+    )}
+
+    {/* 4. 正常输入框（无权限确认时显示）*/}
+    {!permissionRequest && !costThresholdExceeded && (
+      <PromptInput isLoading={isLoading} onSubmit={handleSubmit} />
+    )}
+  </Box>
+)
+```
+
+**状态转换触发器：**
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: 初始化完成
+    Idle --> Loading: 用户提交消息
+    Loading --> PermissionPending: 工具需要权限确认
+    PermissionPending --> Loading: 用户确认/拒绝
+    Loading --> Idle: 模型响应完成
+    Loading --> CostExceeded: 成本超限
+    CostExceeded --> Loading: 用户选择继续
+    CostExceeded --> [*]: 用户选择退出
+    Idle --> [*]: 用户输入 /exit 或 Ctrl+D
+```
+
+### 3.5 键盘快捷键与 Screen 切换的绑定
+
+Ink 的键盘事件通过 `useInput` Hook 在各个 Screen 内部处理，不存在全局键盘路由层。每个 Screen 注册自己关心的快捷键：
+
+**REPL Screen 的关键快捷键绑定：**
+
+| 快捷键 | 触发动作 | 实现位置 |
+|--------|---------|---------|
+| `Ctrl+C`（单次）| 中止当前 API 请求 | `useInput` → `abortController.abort()` |
+| `Ctrl+C`（双次）| 退出进程（ExitFlow）| `useInput` → `setShowExitDialog(true)` |
+| `Ctrl+D` | 等同于 `/exit` | `useInput` → `onDone()` |
+| `Ctrl+L` | 清空屏幕（保留历史）| `useInput` → `setScrollOffset(Infinity)` |
+| `↑` / `↓` | 历史命令导航 | `PromptInput` 内的 `useInput` |
+| `Tab` | 自动补全斜杠命令 | `PromptInput` → `getCommandCompletions()` |
+
+**ResumeConversation Screen 的快捷键：**
+
+| 快捷键 | 触发动作 |
+|--------|---------|
+| `↑` / `↓` | 浏览会话列表 |
+| `Enter` | 选择当前会话，调用 `onDone(selectedSession)` |
+| `Esc` / `q` | 取消，调用 `onDone(null)`（回到 REPL 或退出）|
+| `/` + 搜索词 | 过滤会话列表（模糊匹配标题）|
+
+**快捷键与 Screen 路由的联动：**
+
+快捷键不直接切换 Screen，而是触发状态更新或 `onDone` 调用，由父级的路由逻辑决定是否切换 Screen。这保持了 Screen 的自主性（Screen 只知道"自己完成了"，不知道"完成后去哪里"）。
+
+### 3.6 跨 Screen 状态保持机制
+
+**会话数据的跨 Screen 传递**
+
+`ResumeConversation` → `REPL` 的状态传递通过 `onDone` 的参数完成：
+
+```typescript
+// ResumeConversation.tsx — onDone 的数据结构
+interface ResumeResult {
+  sessionId: UUID
+  restoredMessages: Message[]        // 历史消息数组
+  sessionMode: 'coordinator' | 'normal'
+  initialPrompt?: string             // 恢复时预填的提示词
+  workingDirectory?: string          // 恢复历史工作目录
+  forkData?: ForkData                // 分支元数据（如有）
+}
+
+// 调用方（index.ts）将 ResumeResult 传给 REPL 作为 props
+rerender(<REPL initialData={resumeResult} onDone={handleREPLDone} />)
+```
+
+**不跨 Screen 持久化的状态**
+
+以下状态在 Screen 切换时丢失（重新挂载后从持久化源重建）：
+
+| 状态 | 来源重建方式 |
+|------|------------|
+| `messages` 数组 | 从 transcript JSONL 文件反序列化 |
+| 工具权限缓存 | 重新读取 `~/.claude/projects/<hash>/permissions.json` |
+| 成本计数器 | 从 `AppState` 的 `sessionCost` 字段恢复 |
+| 光标位置 | 不恢复（每次重新进入 REPL 从空输入框开始）|
+
+**AppState 作为跨 Screen 的全局状态**
+
+`AppState`（通过 `getAppState` / `setAppState` 访问）是一个进程级单例，不随 Screen 切换而销毁。它存储：
+- 当前 `sessionId`（切换 Screen 时不变）
+- 模型选择（`model`、`smallModel`）
+- 全局 MCP 客户端连接
+- 用户偏好配置（`userConfig`）
+
+这是 Screen 间隐式共享状态的唯一机制，避免了"状态传递地狱"。
+
+### 3.7 Doctor Screen 的诊断信息架构
+
+`Doctor.tsx` 的诊断项覆盖三个层面：
+
+**层面一：环境变量与配置**
+
+```typescript
+// Doctor.tsx — 环境诊断项（部分）
+const diagnostics = [
+  { label: 'Model',         value: getModel() },
+  { label: 'Small model',   value: getSmallModel() },
+  { label: 'API endpoint',  value: process.env.ANTHROPIC_BASE_URL ?? '(default)' },
+  { label: 'Claude.ai sub', value: isClaudeAISubscriber() ? 'Yes' : 'No' },
+  { label: 'OAuth token',   value: hasOAuthToken() ? '✓ Present' : '✗ Missing' },
+]
+```
+
+**层面二：版本信息（异步 + Suspense）**
+
+```typescript
+// Doctor.tsx — 三个并发的版本检查
+const npmTagsPromise = getNpmDistTags()     // 请求 registry.npmjs.org
+const gcsTagsPromise = getGCSDistTags()    // 请求 GCS 存储桶（ANT 内部）
+const currentVersion = getPackageVersion() // 同步读取本地 package.json
+
+// 每个异步版本信息都用 Suspense 包裹，独立加载，互不阻塞
+<Suspense fallback={<Spinner label="Checking npm..." />}>
+  <NpmVersionDisplay promise={npmTagsPromise} current={currentVersion} />
+</Suspense>
+```
+
+**层面三：MCP 服务器连接状态**
+
+Doctor Screen 遍历已配置的 MCP 服务器，显示每个服务器的：
+- 连接状态（Connected / Disconnected / Error）
+- 协议版本
+- 可用工具数量
+- 最近一次连接错误（若有）
+
+### 3.8 设计模式分析
 
 - **命令模式（Command Pattern）**：每个 Screen 接收 `onDone: (result?, options?) => void` 回调，Screen 完成后通知调用者，实现 Screen 与路由逻辑的解耦。
 - **页面对象模式（Page Object Pattern）**：每个 Screen 封装一个完整的"页面"逻辑，包含该页面所需的全部状态和副作用，不依赖上级组件的内部状态。
@@ -180,6 +392,30 @@ Spinner 组件使用 `useInterval` 以固定帧率更新动画状态，每次更
 
 `switchSession`（来自 `bootstrap/state.js`）更新全局会话 ID 并清除当前会话的所有状态（消息数组、成本跟踪、文件历史快照等）。REPL 通过订阅 AppState 变化检测到 `currentSessionId` 更新后，触发一次完整的"会话初始化"流程：重新加载历史消息（如果是恢复会话）或清空消息数组（如果是新建会话），重置工具权限上下文，并重新执行 session start 钩子。整个过程在 React 状态更新链内完成，Ink 的差量渲染确保界面平滑过渡，无需重启 Node.js 进程。
 
+**Q10：如果要为 REPL 添加"多面板模式"（同时显示主对话和工作者对话），需要修改哪些核心结构？**
+
+A：多面板模式需要以下改动：
+1. **REPL 状态层**：将单一的 `messages` 数组扩展为 `Map<sessionId, Message[]>`，每个面板对应一个 session 的消息历史
+2. **渲染层**：引入 Ink 的水平 `Box flexDirection="row"` 布局，每个面板包裹在独立的 `Box width="50%"` 中
+3. **焦点管理**：使用 Ink 的 `useFocusManager()` 实现面板间焦点切换（`Tab` 切换，有焦点的面板接收键盘输入）
+4. **QueryLoop 绑定**：每个面板的 PromptInput 提交时，向对应 `sessionId` 的 QueryLoop 实例发送消息
+5. **AppState 扩展**：`activePanelSessionId` 字段标识当前活动面板
+
+挑战在于 REPL.tsx 当前的所有状态假设"单一活跃会话"，需要大量重构。最小破坏性路径是引入 `PanelContext`，将面板感知下沉到子组件，REPL 顶层保持单会话视角。
+
+**Q11：Doctor Screen 的 `Suspense` 边界在 Ink（CLI）环境中与 Web 环境有何差异？**
+
+A：在 Web 环境中，Suspense fallback 通常是视觉上的占位 UI（骨架屏），不影响其他内容的显示。在 Ink（CLI）环境中，Suspense 的行为相同，但渲染载体是终端字符流：
+- fallback（`<Spinner />`）会在终端输出动画字符序列
+- Promise 解析后，Ink 的差量渲染计算新旧输出的差量，发送 ANSI 控制码更新终端内容
+- 由于终端没有 CSS/DOM，"替换" Spinner 为实际内容时，Ink 使用光标移动指令（`\x1B[nA\x1B[K`）清除旧行再写入新行
+
+Doctor Screen 使用多个独立的 `Suspense` 边界（npm 版本、GCS 版本各自独立），这样其中一个网络请求超时不会阻塞另一个的显示，用户能看到部分诊断结果而非全量等待。
+
+**Q12：REPL 的 `permissionRequest` 状态如何防止同时处理两个并发工具权限请求？**
+
+A：`permissionRequest` 是 `ToolUseConfirm | null` 的单值状态（非队列），同一时刻只能有一个权限请求处于等待状态。工具执行框架（`QueryLoop`）在调用 `onPermissionRequest` 时会等待前一个请求的 Promise resolve 后才能发起下一个——因为工具是按顺序执行的，前一个工具的权限确认（或拒绝）是执行下一个工具的前提条件。若协调器模式下多个工作者并发请求权限，每个工作者的 `QueryLoop` 独立持有自己的 `permissionRequest` 回调引用，由各自的子 UI 面板（`TaskView`）渲染，不会聚合到主 REPL 的 `permissionRequest` 状态中。
+
 ---
 
-> **版权声明**：源码版权归 [Anthropic](https://www.anthropic.com) 所有，本文档基于 Claude Code v2.1.88 source map 还原版本分析，仅供学习研究使用。文档内容采用 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 协议。
+> 源码版权归 [Anthropic](https://www.anthropic.com) 所有，本笔记仅供学习研究使用。文档内容采用 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 协议。

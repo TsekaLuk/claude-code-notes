@@ -143,6 +143,113 @@ return sessionIsCoordinator
 
 **内部工具集合（Set Exclusion）**：用 `INTERNAL_WORKER_TOOLS` 集合从工作者工具清单中排除协调器专有工具（`team_create`、`send_message` 等），防止工作者调用只应由协调器使用的控制平面工具，体现"最小权限"原则。
 
+### 3.4 协调循环（Coordination Loop）机制详解
+
+`coordinator` 模块并不直接实现事件循环，但它通过系统提示词向 LLM 定义了协调循环的行为规则。理解这一"软性循环"与 `QueryEngine` 硬性循环的关系，是掌握整个多 Agent 架构的关键。
+
+**QueryEngine 的硬性循环**
+
+`QueryLoop`（`src/query/QueryLoop.ts`）是处理多轮工具调用的迭代框架：
+1. 向 Anthropic API 发送 `messages` 数组，获取 SSE 流式响应
+2. 若响应包含 `tool_use` 块，依次执行每个工具调用
+3. 将工具执行结果（`tool_result`）追加到 `messages`，重新发起 API 请求
+4. 直到响应中不再包含 `tool_use`（或遇到 `stop_reason: end_turn`），循环结束
+
+**协调器的"软性协调循环"**
+
+在协调器模式下，`QueryLoop` 的每次迭代对应"协调器-工作者"交互的一轮：
+1. 协调器 LLM 输出含多个 `AgentTool` 调用的响应
+2. `AgentTool` 异步启动工作者，每个工作者运行独立的 `QueryLoop`
+3. 工作者完成后，以 `<task-notification>` XML 格式向主会话发送 `tool_result`
+4. 协调器 LLM 读取所有工作者结果，决策下一步动作（继续派发或收口汇总）
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant QE as QueryEngine（主）
+    participant COORD as 协调器 LLM
+    participant AT as AgentTool
+    participant W1 as 工作者1 QueryLoop
+    participant W2 as 工作者2 QueryLoop
+
+    U->>QE: 发送任务
+    QE->>COORD: messages + 协调器系统提示词
+    COORD->>AT: tool_use: AgentTool(task1, task2)
+    AT->>W1: 启动（独立上下文）
+    AT->>W2: 启动（独立上下文）
+    par 并行执行
+        W1-->>AT: task-notification XML
+    and
+        W2-->>AT: task-notification XML
+    end
+    AT-->>QE: tool_result（含两个通知）
+    QE->>COORD: 追加 tool_result 重新请求
+    COORD->>QE: 汇总报告 / 继续派发
+```
+
+**关键细节：单次输出多工具调用实现并发**
+
+LLM 的并发实际上是"单次 API 响应中包含多个 `tool_use` 块"。`QueryLoop` 检测到这种情况后，会并发执行所有工具调用（`Promise.all` 或并发队列），而非串行。这意味着协调器的"并发能力"受限于 LLM 愿意在单次输出中生成多少个 `AgentTool` 调用，而非运行时线程池大小。系统提示词中明确要求协调器"批量发起工具调用"，就是为了利用这一机制。
+
+### 3.5 协调器与工具层、UI 层的中介关系
+
+`coordinatorMode.ts` 是一个纯"配置生产者"，它不直接操作工具或 UI，但通过注入系统提示词和用户上下文间接影响二者：
+
+**与工具层的关系**
+
+```
+coordinatorMode.ts
+  ↓ getCoordinatorUserContext()
+QueryEngine
+  ↓ 注入 workerToolsContext 到 userTurn
+LLM（知道工作者有哪些工具）
+  ↓ 生成 AgentTool 调用（含适当子任务描述）
+AgentTool
+  ↓ 按 ASYNC_AGENT_ALLOWED_TOOLS 初始化工作者工具池
+工作者工具池（Bash、Read、Write 等）
+```
+
+`getCoordinatorUserContext()` 的输出直接决定了协调器 LLM 如何分配任务——它列出了工作者可用的工具集，使 LLM 能够判断"这个子任务需要文件写操作，工作者有 Write 工具，可以派发"。若工作者工具集描述缺失或错误，LLM 会产生不合理的任务分解（如将需要网络访问的子任务分配给没有 `WebFetch` 工具的工作者）。
+
+**与 UI 层的关系**
+
+协调器模式下的 UI 展示与普通模式略有不同：
+- 每个 `AgentTool` 调用对应一个独立的 `TaskView` 组件，实时展示子工作者的进度
+- `task-notification` 消息以特殊样式渲染（有别于普通助手消息），清晰标示来源
+- `SendMessageTool` 的调用在 UI 中显示为"向工作者 X 发送后续消息"的操作记录
+
+**`coordinatorMode.ts` 不负责的部分**
+
+| 职责 | 实际负责模块 |
+|------|-------------|
+| 并发工具调用执行 | `QueryLoop.ts` |
+| 工作者生命周期管理 | `AgentTool.ts` |
+| task-notification 消息路由 | `SendMessageTool.ts` + `AppState` |
+| 工作者工具权限白名单 | `ASYNC_AGENT_ALLOWED_TOOLS`（`constants/tools.ts`） |
+| 子 Agent UI 渲染 | `TaskView.tsx` |
+
+### 3.6 并发工具调用的处理细节
+
+**为何协调器不直接"调度"并发**
+
+`coordinatorMode.ts` 的系统提示词教导 LLM"尽量在单次输出中发起多个 AgentTool"，但实际的并发调度由 `QueryLoop` 负责。这种设计分离了"意图表达"（LLM 决定并行什么）和"机制实现"（QueryLoop 决定如何并行执行）。
+
+**并发工具调用的执行顺序保证**
+
+`QueryLoop` 对同一轮 `tool_use` 块的处理策略：
+- 多个工具调用共享同一个 `AbortController`，任一工具被用户中止则全部中止
+- 工具结果按原始调用顺序追加到 `messages`，即使工具完成顺序不同（保证 LLM 输入的确定性）
+- `AgentTool` 返回时，其 `tool_result` 包含完整的工作者输出 XML，不做截断
+
+**工作者通信的背压机制**
+
+若主协调器在工作者仍在运行时收到新消息（用户中断），`abortController.abort()` 信号会级联传播：
+1. 主 QueryLoop 的 abort → 终止当前 API 流
+2. 所有已启动的 AgentTool 收到 abort 信号 → 向子工作者的 QueryLoop 发送 abort
+3. 子工作者的 Bash 进程收到 SIGTERM
+
+这种级联中止是通过 `AbortController` 父子关联实现的，`coordinatorMode.ts` 不参与此逻辑。
+
 ---
 
 ## 四、高频面试 Q&A
@@ -191,6 +298,28 @@ A：最自然的接入点是 `getCoordinatorUserContext()`——在返回的 `wo
 
 A：排查路径如下：1）确认会话存档中 `sessionMode` 字段是否为 `'coordinator'`（存档可能来自旧版本，缺少该字段）；2）检查 `matchSessionMode()` 是否被调用（QueryEngine 启动时应调用）；3）确认 `process.env.CLAUDE_CODE_COORDINATOR_MODE` 在 `matchSessionMode()` 返回后的值；4）检查是否有其他代码在之后清除了该环境变量。若 `sessionMode` 为 `undefined`（旧格式），`matchSessionMode()` 提前返回 `undefined`，模式不会被恢复，这是最常见原因。
 
+**Q10：`getCoordinatorSystemPrompt()` 中的并发策略规则对 LLM 有约束力吗？如果 LLM 违反了怎么办？**
+
+A：系统提示词对 LLM 是"软约束"——语言模型无法被强制执行规则，只能通过提示词引导行为。若 LLM 违反并发规则（如将写密集任务并行分配到同一文件），`QueryLoop` 层面没有锁机制防止两个工作者同时写入同一文件，可能导致竞态条件（后完成的工作者覆盖前者的修改）。实践中的缓解手段：1）Bash 工具的文件写操作是原子 IO，最小粒度不会出现字节级交错；2）工作者任务描述中要求明确的文件所有权边界；3）协调器系统提示词强调"验证并发"而非"写并发"，降低冲突概率。根本解决需要在 `AgentTool` 层引入文件级别的分布式锁，但当前实现未包含此机制。
+
+**Q11：协调器模式下，scratchpad（临时文件目录）的作用是什么？为何需要 Feature Gate？**
+
+A：Scratchpad 是工作者之间共享中间结果的机制：工作者可以将分析报告、部分代码片段写入 scratchpad 目录，协调器（或其他工作者）通过读取该目录来聚合信息。`getCoordinatorUserContext()` 在 scratchpad 启用时，向 LLM 注入目录路径说明，使 LLM 能够在提示词中指示工作者"将结果写入 `$SCRATCHPAD/analysis.md`"。Feature Gate（`tengu_scratch`）的存在是因为 scratchpad 引入了工作者间的隐式依赖——若工作者 A 在工作者 B 开始前未完成写入，B 读到的数据可能不完整。该功能尚在 Statsig 灰度验证阶段，Gate 允许逐步扩量并在发现问题时快速回滚，而无需发布新版本。
+
+### 权衡与优化题（补充）
+
+**Q12：若协调器需要管理 100 个并发工作者，当前架构的瓶颈在哪里？**
+
+A：当前架构存在三个主要瓶颈：
+1. **LLM 单次输出的工具调用上限**：Anthropic API 对单次响应中 `tool_use` 块的数量有隐性限制（约 20-50 个），超出则需要多轮协调循环，失去真正的并发优势。
+2. **进程资源消耗**：每个工作者运行独立的 `QueryLoop`，持有独立的 API 连接、消息历史缓冲区和 Node.js 事件循环。100 个工作者并行时，内存和文件描述符消耗显著。
+3. **task-notification 消息合并**：100 个工作者的通知全部堆积在主协调器的下一轮 `tool_result` 中，单次 `messages` 追加的 token 数激增，可能触发上下文溢出。
+优化方向：引入"工作者池"上限（通过系统提示词约束或 `AgentTool` 并发限制），以及分层协调结构（子协调器管理子工作者组）。
+
+**Q13：`isCoordinatorMode()` 每次调用都读取 `process.env`，在高频调用场景下会有性能影响吗？**
+
+A：`process.env` 的读取在 Node.js/Bun 中是同步的原生调用，单次耗时约 0.01-0.1 微秒，远低于任何 I/O 操作。`isCoordinatorMode()` 在 `QueryLoop` 每次迭代时调用（约每秒数次），累计开销可以忽略不计。相比使用模块级缓存变量，不缓存的设计避免了"缓存失效"问题（`matchSessionMode()` 可能在任何时刻修改 `process.env`），换来的是代码简单性。若未来出现性能问题，可在 `matchSessionMode()` 调用处加入版本号，`isCoordinatorMode()` 只有在版本号变化时才读取环境变量。
+
 ---
 
-> **版权声明**：源码版权归 [Anthropic](https://www.anthropic.com) 所有，本文档基于 Claude Code v2.1.88 source map 还原版本分析，仅供学习研究使用。文档内容采用 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 协议。
+> 源码版权归 [Anthropic](https://www.anthropic.com) 所有，本笔记仅供学习研究使用。文档内容采用 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 协议。

@@ -134,7 +134,193 @@ export const call: LocalJSXCommandCall = async (onDone, context) => {
 }
 ```
 
-### 3.3 设计模式分析
+### 3.3 `/commit` 提交信息生成管道详解
+
+`/commit` 命令的核心价值是"AI 理解代码语义并生成符合项目风格的提交信息"，这一能力通过多层次的信息注入实现：
+
+**阶段一：Git 状态采集**
+
+`executeShellCommandsInPrompt` 在提示词模板中展开以下命令（按执行顺序）：
+
+| 占位符 | 展开命令 | 注入信息 |
+|--------|---------|---------|
+| `!\`git status\`` | `git status` | 当前工作区/暂存区状态 |
+| `!\`git diff HEAD\`` | `git diff HEAD` | 所有改动的完整 diff |
+| `!\`git branch --show-current\`` | `git branch --show-current` | 当前分支名 |
+| `!\`git log --oneline -10\`` | `git log --oneline -10` | 近 10 次提交（学习项目风格）|
+
+`git log --oneline -10` 是关键：模型通过阅读近期提交信息，学习该项目的提交消息风格（是否使用 Conventional Commits、是否有 issue 编号前缀、惯用措辞等），生成风格一致的新提交信息。
+
+**阶段二：Git Safety Protocol 注入**
+
+提示词中有一段固定的"Git Safety Protocol"安全规则，不可被用户覆盖：
+
+```typescript
+// src/commands/commit.ts（提示词内嵌安全规则）
+`## Git Safety Protocol
+- NEVER update the git config
+- NEVER run destructive git commands (push --force, reset --hard,
+  checkout ., restore ., clean -f, branch -D) unless the user
+  explicitly requests these actions
+- NEVER skip hooks (--no-verify, --no-gpg-sign, etc)
+- Create NEW commits rather than amending, unless user asks`
+```
+
+这段规则是 Claude Code 承诺给用户的安全底线。即使用户在 `/commit` 末尾加上"--no-verify"，AI 也会拒绝执行（因为规则明确禁止跳过 hooks）。
+
+**阶段三：归因文本注入**
+
+`getAttributionTexts()` 根据 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` 等环境变量和 `DISABLE_ATTRIBUTION` 标志决定是否追加归因行：
+
+```typescript
+// src/utils/attribution.ts:28-45
+// commitAttribution 决定是否在提交信息末尾加入
+// "Co-Authored-By: Claude <noreply@anthropic.com>" 行
+export async function getAttributionTexts(getAppState) {
+  if (isAttributionDisabled(getAppState)) return { commitAttribution: '', prAttribution: '' }
+  return {
+    commitAttribution: '\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+    prAttribution: '\n\n🤖 Generated with [Claude Code](https://claude.ai/claude-code)'
+  }
+}
+```
+
+**阶段四：用户指令追加**
+
+若用户输入 `/commit fix login bug`，`args` 参数（`"fix login bug"`）被追加到提示词末尾：
+
+```
+## Additional instructions from the user:
+fix login bug
+```
+
+AI 在生成提交信息时自然融合"Additional instructions"，无需代码层解析。
+
+**完整管道时序：**
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant CMD as commit.ts
+    participant PSE as executeShellCommandsInPrompt
+    participant LLM as Claude API
+    participant BASH as Bash 工具
+
+    U->>CMD: /commit [args]
+    CMD->>PSE: 含 !\`git\` 占位符的模板
+    PSE->>PSE: 并发执行 4 个 git 命令
+    PSE-->>CMD: 展开后的完整提示词
+    CMD->>LLM: messages + ALLOWED_TOOLS 白名单
+    LLM->>BASH: git add -A && git commit -m "feat: ..."
+    BASH-->>LLM: 执行结果
+    LLM-->>U: 提交成功报告
+```
+
+### 3.4 `/commit` 与 raw `git commit` 的关键差异
+
+| 特性 | `/commit` | `git commit` |
+|------|-----------|-------------|
+| 提交信息生成 | AI 读取 diff 语义自动生成 | 用户手动输入 |
+| 风格学习 | 读取近 10 条日志匹配项目风格 | 无 |
+| 多文件暂存决策 | AI 判断哪些文件应一起提交 | 用户手动 `git add` |
+| Hook 处理 | 必须通过（Safety Protocol 禁止 --no-verify）| 用户可跳过 |
+| 危险操作防护 | 系统提示词禁止 force push 等操作 | 无限制 |
+| 工具权限范围 | 仅 `git add`/`git status`/`git commit` | 无限制（用户全权限）|
+| 归因追踪 | 可选追加 Co-Authored-By | 无 |
+
+### 3.5 `/commit-push-pr` 完整流程与幂等性设计
+
+**初始化阶段（进程启动时并发执行）：**
+
+```typescript
+// src/commands/commit-push-pr.ts:45-52
+// 命令注册时即开始预取，而非等用户输入 /commit-push-pr
+const [defaultBranch, prAttribution] = await Promise.all([
+  getDefaultBranch(),          // git symbolic-ref refs/remotes/origin/HEAD
+  getEnhancedPRAttribution(getAppState),  // 检查 DISABLE_ATTRIBUTION 标志
+])
+```
+
+**PR 幂等性检查（提示词中的 gh CLI 序列）：**
+
+提示词指示 AI 按如下顺序执行，确保幂等：
+
+```
+1. git status && git diff HEAD      ← 确认有改动
+2. git add -A && git commit -m "…"  ← 创建提交
+3. git push -u origin HEAD          ← 推送分支
+4. gh pr view --json number 2>/dev/null  ← 检查 PR 是否已存在
+5a. 若 PR 存在: gh pr edit --title "…" --body "…"  ← 更新
+5b. 若 PR 不存在: gh pr create --title "…" --body "…"  ← 创建
+```
+
+步骤 4-5 保证了命令的幂等性：重复执行不会创建多个 PR，而是更新已有 PR。
+
+**`ALLOWED_TOOLS` 扩展对比：**
+
+```typescript
+// commit.ts：最小权限
+const COMMIT_ALLOWED_TOOLS = [
+  'Bash(git add:*)', 'Bash(git status:*)', 'Bash(git commit:*)'
+]
+
+// commit-push-pr.ts：包含 gh CLI 和 git push
+const CPP_ALLOWED_TOOLS = [
+  'Bash(git add:*)', 'Bash(git status:*)', 'Bash(git commit:*)',
+  'Bash(git push:*)',   // 新增：允许推送
+  'Bash(gh pr:*)',      // 新增：允许 PR 操作
+  'Bash(gh auth:*)',    // 新增：允许认证检查
+]
+```
+
+### 3.6 分支命名策略（`/branch` 的 `customTitle` 处理）
+
+`createFork()` 的分支命名遵循"首选用户输入，回退到父会话首条消息"的策略：
+
+```typescript
+// src/commands/branch/branch.ts:35-58
+async function createFork(customTitle?: string): Promise<ForkResult> {
+  const forkSessionId = randomUUID() as UUID
+  const parentSessionId = getSessionId()
+
+  // 标题决策：优先用户指定 > 从父会话首条消息提取
+  const title = customTitle
+    ?? deriveFirstPrompt(parentMessages)  // 截取 100 字符，折叠空白
+    ?? `Fork of ${parentSessionId.slice(0, 8)}`  // 最终回退
+
+  // forkedFrom 字段建立父子追踪关系
+  const forkMetadata = {
+    forkedFrom: { sessionId: parentSessionId, messageUuid: lastMessageUuid },
+    customTitle: title,
+    createdAt: Date.now(),
+  }
+  // 写入新 transcript 文件（JSONL 格式）
+  await writeTranscriptFile(forkSessionId, parentMessages, forkMetadata)
+  return { sessionId: forkSessionId, title }
+}
+```
+
+`deriveFirstPrompt()` 的两个关键处理：
+1. 折叠内嵌换行（代码块、错误堆栈可能包含 `\n`），防止标题多行显示破坏会话列表 UI
+2. 截断至 100 字符 + 省略号，保证列表对齐
+
+### 3.7 `/diff` 的差量渲染层（DiffDialog 架构）
+
+`/diff` 命令的极简实现背后，`DiffDialog` 组件承载了完整的差量渲染逻辑：
+
+**DiffDialog 的工作流程：**
+
+1. 接收 `context.messages`（完整对话历史）
+2. 扫描消息历史，找出所有 `tool_use: Write`/`Edit` 操作的文件变更
+3. 调用 `git diff` 或对比文件快照，生成 unified diff 格式输出
+4. 使用 Ink 的 `Text` 组件以 ANSI 着色渲染（绿色添加行，红色删除行）
+5. 支持键盘导航（`j`/`k` 滚动，`q` 退出）
+
+**为什么 diff 渲染逻辑在 UI 组件而非命令层：**
+
+`DiffDialog` 需要直接访问 React 渲染树和键盘事件，这些只能在组件上下文中实现。将逻辑放在命令层不仅无法利用 Ink 的响应式更新机制，还需要额外的状态管理。"命令作为薄壳"模式将关注点彻底分离：命令负责接入路由，组件负责交互逻辑。
+
+### 3.8 设计模式分析
 
 **模板方法模式（Template Method）**：`/commit` 和 `/commit-push-pr` 都使用 `getPromptContent()` 函数构建提示词模板，通过参数化（`defaultBranch`、`commitAttribution`、`prAttribution`）定制具体内容。Git Safety Protocol 作为固定安全约束内嵌在模板中，不可被用户覆盖（仅在末尾追加 Additional instructions）。
 
@@ -192,5 +378,26 @@ A：Claude Code 有多个扩展点：
 
 A：没有直接关系。`/branch` 创建的是**会话分支（conversation branch）**，而非 Git 分支。它复制的是 Claude Code 的对话历史 transcript 文件，赋予新的 `sessionId`，通过 `forkedFrom` 追踪父子关系，存储在 `~/.claude/projects/<hash>/` 目录下。用户在会话分支中的操作（包括 Git 操作）仍然作用于同一个文件系统和 Git 仓库，只是对话上下文独立。若想同时创建 Git 分支，需要在分支会话中额外执行 `git checkout -b`。
 
+**Q10：Git Safety Protocol 中禁止的操作由谁来执行？是代码层强制还是 AI 自律？**
+
+A：是 AI 自律（软约束），而非代码层强制。系统提示词将安全规则注入 LLM 上下文，使模型"理解并遵守"这些规则。但从技术上讲，`ALLOWED_TOOLS` 白名单提供了一层硬约束：即使 AI 生成了 `git push --force` 命令，Bash 工具也需要通过正则检查 `Bash(git push:*)` 是否在白名单中——而 `/commit` 命令的白名单不包含 `git push`，因此 force push 实际上无法执行。两层防护互补：提示词规则防止 AI"想要"执行危险操作；工具白名单在 AI"失控"时提供最后一道屏障。
+
+**Q11：`/autofix-pr` 是如何识别 CI 失败并生成修复方案的？**
+
+A：`autofixPr` 是专为内部 ANT 构建管道设计的命令（`INTERNAL_ONLY_COMMANDS` 列表中）。其工作流程：1）读取 CI 系统传入的构建日志 URL 或错误文本（通过 `context.args` 注入）；2）将错误日志作为上下文注入提示词，请求 AI 分析失败原因；3）AI 生成修复 patch，通过 Bash 工具执行文件修改；4）调用 `git commit` 和 `git push` 将修复推送到同一 PR 分支。`ALLOWED_TOOLS` 包含比 `/commit` 更广的权限（允许读写文件），因为修复错误需要实际修改代码而非仅提交现有改动。
+
+**Q12：为什么 `getDefaultBranch()` 在命令注册时就执行，而非等用户触发 `/commit-push-pr`？**
+
+A：这是"预取（Prefetch）"优化。用户输入 `/commit-push-pr` 到 REPL 处理完命令注册之间有一定延迟，`getDefaultBranch()`（执行 `git symbolic-ref refs/remotes/origin/HEAD`）约需 50-100ms。在命令注册阶段异步预取并缓存结果，使 `getPromptForCommand()` 的同步路径无需等待 Git I/O，提升命令响应速度。代价是即使用户从未触发该命令，这次 Git 调用也已执行——但其成本可以忽略不计（本地 Git 读操作）。
+
+**Q13：如何为团队定制 `/commit` 不追加 Co-Authored-By 行？**
+
+A：有三个层次的控制：
+1. **项目级**：在项目 `CLAUDE.md` 中写入 `Do not add Co-Authored-By attribution to commits`，AI 会遵守但非强制执行
+2. **环境变量级**：设置 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`（或 ANT 内部的 `DISABLE_ATTRIBUTION=1`），`getAttributionTexts()` 返回空字符串，彻底禁用归因
+3. **全局配置级**：在 `~/.claude/settings.json` 中设置 `"attribution": false`，通过 `getAppState` 传播到 `isAttributionDisabled()` 检查
+
+方案 2 是最可靠的，因为它在代码层强制禁用，不依赖 AI 的提示词遵从性。
+
 ---
-> **版权声明**：源码版权归 [Anthropic](https://www.anthropic.com) 所有，本文档基于 Claude Code v2.1.88 source map 还原版本分析，仅供学习研究使用。文档内容采用 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 协议。
+> 源码版权归 [Anthropic](https://www.anthropic.com) 所有，本笔记仅供学习研究使用。文档内容采用 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 协议。
