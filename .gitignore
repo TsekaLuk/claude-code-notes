@@ -21,7 +21,7 @@ yarn-error.log
 .env.local
 
 # Exported Assets & Specific Folders
-_export_images/
+Claude-Code-Notes-图文包/
 docs/superpowers/
 md2img-renderer/
 *.zip
