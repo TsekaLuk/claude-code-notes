@@ -18,7 +18,7 @@
 
 ## What Is This?
 
-This repository is a systematic, source-level analysis of **Anthropic's Claude Code (v2.1.88)** — the production AI agent CLI that ships as an npm package. Using source map recovery techniques on the published bundle, we reverse-engineered the internal architecture into 55 structured articles spanning 8 core modules.
+This repository is a systematic, source-level analysis of **Anthropic's Claude Code (v2.1.88)** — the production AI agent CLI that ships as an npm package. Using source map recovery techniques on the published bundle, we reverse-engineered the internal architecture into 56 structured articles spanning 8 core modules.
 
 Each article follows a consistent three-part format: a narrative walkthrough of the source code, a set of design-decision Q&As (the kind that come up in senior engineering interviews), and Mermaid diagrams that visualize data flows, state machines, and module dependencies. The goal is not just to describe what the code does, but to explain *why* each architectural choice was made and what trade-offs it involves.
 
@@ -42,7 +42,7 @@ If you are preparing for a senior engineering interview, building your own AI ag
 
 ---
 
-## Repository Structure (55 Articles)
+## Repository Structure (56 Articles)
 
 The repository mirrors the physical module layout of the Claude Code source. Start with the global overview, then navigate by area of interest.
 
