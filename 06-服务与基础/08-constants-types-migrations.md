@@ -57,6 +57,27 @@ src/memdir/ ◄── 依赖 bootstrap/state, utils/settings, services/analytics
 
 ### 2.3 关键数据流
 
+```mermaid
+flowchart TD
+    A[应用启动 setup.ts] --> B[migrateAutoUpdatesToSettings\n检查 globalConfig.autoUpdates]
+    B --> C{autoUpdates === false\n且非 native 保护?}
+    C -- 是 --> D[写入 userSettings.env.DISABLE_AUTOUPDATER\n设置 process.env 立即生效\n移除 autoUpdates 字段]
+    C -- 否 --> E[跳过]
+    D --> F[migrateSonnet45ToSonnet46]
+    E --> F
+    F --> G{Guard: firstParty\n且 Pro/Max/TeamPremium?}
+    G -- 否 --> H[跳过]
+    G -- 是 --> I{model 匹配旧版本字符串?}
+    I -- 否 --> H
+    I -- 是 --> J[updateSettingsForSource\nmodel → sonnet 或 sonnet_1m]
+    J --> K{numStartups > 1?}
+    K -- 是 --> L[saveGlobalConfig\n记录迁移时间戳\n供 UI 显示通知]
+    K -- 否 --> M[静默完成\n首次用户无需通知]
+    L --> N[继续下一个迁移函数...]
+    M --> N
+    H --> N
+```
+
 **迁移执行流程**：
 ```
 应用启动 setup.ts

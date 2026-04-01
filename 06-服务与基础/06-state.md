@@ -55,6 +55,19 @@ store.ts: Store<AppState>
 
 ### 2.3 关键数据流
 
+```mermaid
+flowchart LR
+    A[Store\nstore.ts\ncreateStore] -->|getState / subscribe| B[AppStateProvider\nAppState.tsx\nReact Context]
+    B -->|useSyncExternalStore| C[React 组件树\n订阅状态切片]
+    A -->|onChange 回调| D[onChangeAppState\n副作用处理器]
+    D -->|持久化| E[saveGlobalConfig\n~/.claude/globalConfig.json]
+    D -->|模型变更| F[updateSettingsForSource\nsetMainLoopModelOverride]
+    D -->|权限模式变更| G[notifySessionMetadataChanged\nCCR 同步]
+    D -->|settings 变更| H[clearApiKeyHelperCache\nclearAwsCredentialsCache\nclearGcpCredentialsCache]
+    I[CLI 命令 / SDK 调用\n非 React 路径] -->|store.setState| A
+    C -->|store.setState| A
+```
+
 **状态更新与副作用**：
 ```
 组件/命令调用 store.setState(prev => ({ ...prev, mainLoopModel: 'sonnet' }))
@@ -146,6 +159,36 @@ export type AppState = DeepImmutable<{
   kairosEnabled: boolean              // 助手模式开关
   // ... 20+ 字段
 }>
+```
+
+```mermaid
+classDiagram
+    class AppState {
+        <<DeepImmutable>>
+        +settings: SettingsJson
+        +mainLoopModel: ModelSetting
+        +verbose: boolean
+        +expandedView: none|tasks|teammates
+        +isUltraplanMode: boolean
+        +kairosEnabled: boolean
+    }
+    class ToolPermissionContext {
+        +mode: PermissionMode
+        +rules: PermissionRule[]
+    }
+    class SettingsJson {
+        +model: string
+        +env: Record~string,string~
+        +apiKeyHelper: string
+    }
+    class Store {
+        +getState() AppState
+        +setState(updater) void
+        +subscribe(listener) unsubscribe
+    }
+    AppState --> ToolPermissionContext : toolPermissionContext
+    AppState --> SettingsJson : settings
+    Store --> AppState : 持有状态
 ```
 
 **`onChangeAppState.ts` — 权限模式变更的 CCR 同步**

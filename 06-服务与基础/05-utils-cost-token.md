@@ -52,6 +52,27 @@ services/tokenEstimation.ts ──► 离线 token 估算（无 API 响应时）
 
 ### 2.3 关键数据流
 
+```mermaid
+flowchart TD
+    A[API 响应 BetaUsage 对象] --> B[getTokenCountFromUsage\ninput + cache_creation + cache_read + output]
+    A --> C[finalContextTokensFromLastResponse\n查找最后一条有 usage 的 assistant 消息]
+    C --> D{有 iterations 字段?}
+    D -- 是 --> E[取 iterations最后一轮\ninput_tokens + output_tokens]
+    D -- 否 --> F[顶层 usage\ninput_tokens + output_tokens]
+    E --> G[上下文窗口剩余预算]
+    F --> G
+    B --> H[总 token 数\n用于自动压缩触发判断]
+    A --> I[getModelCosts\ngetCanonicalName → MODEL_COSTS 查表]
+    I --> J{Fast Mode?}
+    J -- 是 --> K[COST_TIER_30_150\n$30/$150 per M]
+    J -- 否 --> L[对应模型定价\n如 COST_TIER_3_15]
+    K --> M[tokensToUSDCost\n各类 token × 单价 + web_search × $0.01]
+    L --> M
+    M --> N[单次调用 USD 成本]
+    N --> O[cost-tracker.ts\n累计到会话总成本]
+    O --> P[UI footer 实时展示]
+```
+
 **单次 API 调用成本计算**：
 ```
 API 响应 → BetaUsage {

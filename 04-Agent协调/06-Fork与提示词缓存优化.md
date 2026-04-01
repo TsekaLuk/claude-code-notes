@@ -46,6 +46,25 @@ Fork 子 Agent 的消息构建分为三个层次：
 
 **结果：只有最后一个文本块因 child 而异，前面所有内容字节完全相同。多个 fork 并行启动时，共享同一个 prompt cache 前缀，前缀命中率趋近 100%。**
 
+```mermaid
+sequenceDiagram
+    participant P as 父 Agent
+    participant A as API (Prompt Cache)
+    participant F1 as Fork Child 1
+    participant F2 as Fork Child 2
+
+    P->>A: 完整对话历史 (前缀可缓存)
+    Note over A: 缓存前缀 hash
+
+    par 并行启动
+        F1->>A: 共享前缀 + 指令A
+        F2->>A: 共享前缀 + 指令B
+    end
+    Note over A: 前缀 100% 命中缓存<br/>只有最后指令块计费
+    A-->>F1: 响应 (cache_read_input_tokens ↑)
+    A-->>F2: 响应 (cache_read_input_tokens ↑)
+```
+
 ### 2.3 贯穿全系统的 Cache 感知设计
 
 Fork 机制是 Claude Code 缓存感知设计的集中体现，但这套思想在整个系统中无处不在：
@@ -161,6 +180,18 @@ if (querySource === 'fork') {
 第一层是 compaction-resistant 的，但 compaction 可能修改 querySource 的传播路径（例如极端情况下 querySource 被初始化为默认值）。第二层作为 fallback：扫描当前消息历史，检查是否存在 `<fork-boilerplate>` 标签，若存在则说明当前 Agent 已经是某个 fork 子 Agent，不允许再次 fork。
 
 两层检查互为备份，在不同的失效场景下各自发挥作用，共同保证递归不可能发生。
+
+```mermaid
+flowchart TD
+    CALL[fork.ts call 入口] --> L1{querySource\n== 'fork'?}
+    L1 -->|是| DENY1[拒绝: Fork subagent\ncannot initiate another fork]
+    L1 -->|否| L2{消息历史中\n存在 fork-boilerplate 标签?}
+    L2 -->|是| DENY2[拒绝: fallback 防递归]
+    L2 -->|否| ALLOW[允许发起 fork]
+    style DENY1 fill:#ff6b6b,color:#fff
+    style DENY2 fill:#ff6b6b,color:#fff
+    style ALLOW fill:#51cf66,color:#fff
+```
 
 ### 3.3 指令格式：对抗 system prompt 继承的干扰
 

@@ -63,6 +63,22 @@ system: [
 └────────────────────────────────────────────────────────┘
 ```
 
+```mermaid
+flowchart LR
+    subgraph Static["静态区域 (scope: global)"]
+        S1[角色定义] --> S2[行为规范] --> S3[工具优先级指导]
+    end
+    BOUNDARY["SYSTEM_PROMPT_DYNAMIC_BOUNDARY"]
+    subgraph Dynamic["动态区域 (per-session)"]
+        D1[CLAUDE.md内容] --> D2[Git状态] --> D3[MCP指令]
+    end
+    Static -->|跨用户共享缓存| BOUNDARY
+    BOUNDARY -->|不可跨用户缓存| Dynamic
+    style BOUNDARY fill:#ffd43b,color:#333
+    style Static fill:#e3fafc
+    style Dynamic fill:#fff3bf
+```
+
 ### 2.3 模块依赖关系图
 
 ```
@@ -210,6 +226,19 @@ async function discoverClaudeMds(cwd: string): Promise<string[]> {
 ```
 
 **--bare 模式与 --add-dir 的交互**：`--bare` 模式跳过自动 CLAUDE.md 发现（避免意外读取文件系统），但仍尊重 `--add-dir` 显式指定的目录，确保脚本化调用的可预期性。
+
+```mermaid
+flowchart TD
+    START[从当前工作目录开始] --> CHECK{当前目录\n存在 CLAUDE.md?}
+    CHECK -->|是| READ[读取并前置插入\n父级优先级更高]
+    CHECK -->|否| NEXT
+    READ --> NEXT{已到达\n文件系统根目录?}
+    NEXT -->|否| UP[向上一级目录]
+    UP --> CHECK
+    NEXT -->|是| GLOBAL[加载 ~/.claude/CLAUDE.md\n用户全局配置]
+    GLOBAL --> INJECT[注入动态区域\n子目录配置优先级最高]
+    style INJECT fill:#51cf66,color:#fff
+```
 
 **CLAUDE.md 的双重用途**：发现的内容不仅注入动态区域，还被缓存到 `bootstrap/state.ts` 的 `cachedClaudeMdContent`，供 `auto` 模式分类器（yoloClassifier）读取。这打破了潜在循环依赖：`yoloClassifier → claudemd → filesystem` 如果实时读取，可能触发权限检查，而权限检查又依赖 yoloClassifier 的分类结果。缓存打断了这个环。
 

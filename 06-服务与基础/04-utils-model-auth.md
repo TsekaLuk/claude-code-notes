@@ -67,6 +67,27 @@ getAuthTokenSource()
     └─[6] Claude.ai OAuth tokens（本地存储的 accessToken）
 ```
 
+```mermaid
+flowchart TD
+    A[getAuthTokenSource 调用] --> B{isBareMode?}
+    B -- 是 --> C{apiKeyHelper 配置?}
+    C -- 是 --> D[来源: apiKeyHelper]
+    C -- 否 --> E[来源: none]
+    B -- 否 --> F{isManagedOAuthContext?}
+    F -- 是 --> G{OAUTH_TOKEN_FILE_DESCRIPTOR?}
+    G -- 是 --> H[来源: FD 管道注入]
+    G -- 否 --> I{CLAUDE_CODE_OAUTH_TOKEN?}
+    I -- 是 --> J[来源: CCR/Desktop 注入]
+    I -- 否 --> K[来源: none]
+    F -- 否 --> L{ANTHROPIC_AUTH_TOKEN env?}
+    L -- 是 --> M[来源: ANTHROPIC_AUTH_TOKEN]
+    L -- 否 --> N{apiKeyHelper 脚本?}
+    N -- 是 --> D
+    N -- 否 --> O{Claude.ai OAuth token + 有效 scope?}
+    O -- 是 --> P[来源: claude.ai OAuth]
+    O -- 否 --> E
+```
+
 **OAuth token 刷新流程**：
 ```
 API 请求前：checkAndRefreshOAuthTokenIfNeeded()
@@ -83,6 +104,21 @@ API 请求前：checkAndRefreshOAuthTokenIfNeeded()
                             └─► 更新本地存储
                                     │
                                     └─► 释放锁
+```
+
+```mermaid
+flowchart TD
+    A[API 调用前] --> B[checkAndRefreshOAuthTokenIfNeeded]
+    B --> C{token 是否即将过期?}
+    C -- 否 --> D[直接继续请求]
+    C -- 是 --> E[lockfile 加锁\n防多进程并发刷新]
+    E --> F[refreshOAuthToken\nPOST /oauth/token refresh_grant]
+    F --> G{刷新成功?}
+    G -- 是 --> H[更新本地存储 accessToken]
+    H --> I[释放锁]
+    I --> D
+    G -- 否 --> J[释放锁]
+    J --> K[抛出认证错误\n触发重新登录]
 ```
 
 ## 三、核心实现走读

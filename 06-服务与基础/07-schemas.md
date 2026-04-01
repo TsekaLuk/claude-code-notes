@@ -51,6 +51,26 @@ utils/settings/types.ts ──► schemas/hooks.ts ◄── plugins/schemas.ts
 
 ### 2.3 关键数据流
 
+```mermaid
+flowchart TD
+    A[settings.json 磁盘文件] --> B[JSON.parse\n原始 object]
+    B --> C[HooksSchema 调用\nlazySchema 首次调用时创建 Zod 对象]
+    C --> D[z.partialRecord\n遍历 HOOK_EVENTS 键]
+    D --> E[HookMatcherSchema\n每个事件的匹配器数组]
+    E --> F[HookCommandSchema\nz.discriminatedUnion type 字段]
+    F --> G{type 值?}
+    G -- command --> H[BashCommandHookSchema\n验证 command/timeout/async 等字段]
+    G -- prompt --> I[PromptHookSchema\n验证 prompt/model 字段]
+    G -- agent --> J[AgentHookSchema\n注意: 不使用 transform 避免 gh-24920]
+    G -- http --> K[HttpHookSchema\n验证 url/method 字段]
+    H --> L{验证结果}
+    I --> L
+    J --> L
+    K --> L
+    L -- 成功 --> M[HooksSettings 类型化对象\n供执行引擎使用]
+    L -- 失败 --> N[ZodError\n精确到字段路径的错误信息]
+```
+
 **钩子配置解析与验证**：
 ```
 settings.json (磁盘)
@@ -161,6 +181,17 @@ export const HooksSchema = lazySchema(() =>
 
 - **判别联合（Tagged Union）**：通过 `type` 字段标记区分 4 种钩子，Zod 的 `discriminatedUnion` 比 `union` 更高效（O(1) 而非 O(n) 匹配）。TypeScript 的联合类型推断也更精确，`Extract<HookCommand, { type: 'agent' }>` 可精确获取 `AgentHook` 类型。
 - **工厂方法模式（lazySchema）**：`lazySchema` 将模式对象的创建推迟到首次调用时，类似于依赖注入容器的懒初始化，解决了模块加载顺序导致的循环引用问题。
+
+```mermaid
+flowchart TD
+    A[模块加载阶段\n所有 const 立即执行] -->|循环引用风险| B[HookCommandSchema\nlazySchema 包裹\n仅存储工厂函数]
+    B --> C[HookMatcherSchema\nlazySchema 包裹\n依赖 HookCommandSchema]
+    C --> D[HooksSchema\nlazySchema 包裹\n依赖 HookMatcherSchema]
+    D -->|首次调用时\n所有模块已完全加载| E[HooksSchema 执行\n触发 HookMatcherSchema 执行\n触发 HookCommandSchema 执行]
+    E --> F[Zod 对象实例化\nbuildHookSchemas 内部构建\n4 种子 schema]
+    F --> G[discriminatedUnion 组装\ntype 字段 O1 分发]
+    G --> H[可用 Zod 模式对象\n供 parse 调用]
+```
 - **防御式 schema 设计**：`optional()` + 描述性 `describe()` 字符串双重保障——前者保证向后兼容（旧配置不含新字段不会解析失败），后者在 schema 导出为 JSON Schema（用于工具 `inputSchema`）时提供文档。
 - **约定优于配置**：`_PROTO_*` 字段命名约定（分析服务中）与 `IfConditionSchema` 的权限规则语法（钩子中）都是「语义编码到命名约定」的例子，减少显式配置。
 
