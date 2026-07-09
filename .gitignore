@@ -17,8 +17,10 @@ Thumbs.db
 **/node_modules/
 npm-debug.log
 yarn-error.log
+pnpm-debug.log
 .env
 .env.local
+.env.*.local
 
 # Exported Assets & Specific Folders
 Claude-Code-Notes-图文包/
